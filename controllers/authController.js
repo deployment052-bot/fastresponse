@@ -3,18 +3,14 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const sendEmail = require("../utils/sendemail");
 
-/* ---------------------------------------------
-   🔹 JWT Token Generator
---------------------------------------------- */
+
 const generateToken = (user) => {
   return jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
     expiresIn: "7d",
   });
 };
 
-/* ---------------------------------------------
-   🔹 Common Function: Send Email OTP
---------------------------------------------- */
+
 const sendVerificationOTP = async (user, email, name) => {
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
   user.emailOTP = otp;
@@ -36,9 +32,7 @@ const sendVerificationOTP = async (user, email, name) => {
   // console.log(`✅ OTP sent to ${email}: ${otp}`);
 };
 
-/* ---------------------------------------------
-   🔹 Default Register (Fallback)
---------------------------------------------- */
+
 exports.register = async (req, res) => {
   try {
     const { firstName, lastName, email, phone, password, confirmPassword } = req.body;
@@ -81,9 +75,7 @@ exports.register = async (req, res) => {
   }
 };
 
-/* ---------------------------------------------
-   🔹 Register Client (Clean Fields)
---------------------------------------------- */
+
 exports.registerClient = async (req, res) => {
   try {
     const { firstName, lastName, email, phone, password, confirmPassword } = req.body;
@@ -133,9 +125,7 @@ exports.registerClient = async (req, res) => {
   }
 };
 
-/* ---------------------------------------------
-   🔹 Verify Email
---------------------------------------------- */
+
 exports.verifyEmail = async (req, res) => {
   try {
     const { email, otp } = req.body;
@@ -168,9 +158,7 @@ exports.verifyEmail = async (req, res) => {
   }
 };
 
-/* ---------------------------------------------
-   🔹 Login
---------------------------------------------- */
+
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -193,9 +181,7 @@ exports.login = async (req, res) => {
   }
 };
 
-/* ---------------------------------------------
-   🔹 Get Profile
---------------------------------------------- */
+
 exports.getProfile = async (req, res) => {
   try {
     res.json({ user: req.user });

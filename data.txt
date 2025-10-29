@@ -1,0 +1,335 @@
+keyapi_pass=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
+
+keysengr_id=z7pgTIfTQrm4xiLuBcM48A
+
+
+{
+ "workId":"68e7b5ef314efad5098d4c8d",
+   "technicianId": "68e6027914784cc7394ec6cd",
+  "date": "2025-10-08"
+  
+    // optional; agar technician assign karna hai to, warna hata dena
+}
+
+sendgrid=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
+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
+
+const mongoose= require('mongoose')
+const Work = require("../model/work");
+const User = require("../model/user");
+const Booking=require("../model/BookOrder")
+const generateToken = (id) => {
+  return `REQ-${new Date().getFullYear()}-${String(id).padStart(5, '0')}`;
+};
+
+exports.createWork = async (req, res) => {
+  try {
+    const { serviceType, specialization, description, location, date, technicianId } = req.body;
+    const clientId = req.user._id;
+
+    if (!serviceType || !specialization || !location || !date) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    const workDate = new Date(date);
+    if (isNaN(workDate.getTime())) {
+      return res.status(400).json({ message: "Invalid date format" });
+    }
+
+    // Normalize specialization
+    let specs = [];
+    if (typeof specialization === "string") {
+      specs = specialization.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+    } else if (Array.isArray(specialization)) {
+      specs = specialization.map(s => s.trim().toLowerCase());
+    }
+
+    const normalizedLocation = location.trim().toLowerCase();
+
+    // ✅ Create work
+    const work = await Work.create({
+      client: clientId,
+      serviceType,
+      specialization: specs,
+      description,
+      location: normalizedLocation,
+      date: workDate,
+      assignedTechnician: technicianId || null, // safe assignment
+      status: technicianId ? "taken" : "open", // if assigned, mark taken
+      token: `REQ-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`
+    });
+
+    // ✅ Find matching technicians
+    const technicians = await User.find({
+      role: "technician",
+      specialization: { $in: specs.map(s => new RegExp(s, "i")) },
+      location: { $regex: new RegExp(normalizedLocation, "i") }
+    }).select("name phone email experience specialization location ratings");
+
+    const techniciansWithStatus = [];
+    for (const tech of technicians) {
+      const inWork = await Work.findOne({
+        assignedTechnician: tech._id,
+        date: workDate,
+        status: { $in: ["taken", "approved"] }
+      });
+
+      techniciansWithStatus.push({
+        ...tech.toObject(),
+        employeeStatus: inWork ? "in work" : "available"
+      });
+    }
+
+    res.status(201).json({
+      message: technicianId
+        ? "Work created and assigned to technician"
+        : "Work request submitted",
+      work,
+      matchingTechnicians: techniciansWithStatus.length
+        ? techniciansWithStatus
+        : "No matching technicians found"
+    });
+
+  } catch (err) {
+    console.error("Work Creation Error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// 🔹 Find Matching Technicians
+exports.findMatchingTechnicians = async (req, res) => {
+  try {
+    let { specialization, location, date } = req.body;
+
+    if (!specialization || !location || !date) {
+      return res.status(400).json({ message: "Specialization, location, and date required" });
+    }
+
+    // If frontend sends string, convert to array
+    if (typeof specialization === "string") {
+      specialization = [specialization];
+    }
+
+    const workDate = new Date(date);
+    if (isNaN(workDate.getTime())) {
+      return res.status(400).json({ message: "Invalid date format" });
+    }
+
+    let specs = [];
+    if (typeof specialization === "string") {
+      specs = specialization
+        .split(",")
+        .map(s => s.trim().toLowerCase())
+        .filter(Boolean);
+    } else if (Array.isArray(specialization)) {
+      specs = specialization.map(s => s.trim().toLowerCase());
+    }
+
+    // 🧩 3. Normalize location
+    const normalizedLocation = location.trim();
+
+    // 🧩 4. Create new work document
+    const work = await Work.create({
+      client: clientId,
+      serviceType,
+      specialization: specs,
+      description,
+      location: normalizedLocation.toLowerCase(),
+      date: workDate,
+      status: "open",
+      token: `REQ-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`
+    });
+
+    // 🧩 5. Find matching technicians (case-insensitive + partial location match)
+    const technicians = await User.find({
+      role: "technician",
+      specialization: { $in: specs.map(s => new RegExp(s, "i")) },
+      location: { $regex: new RegExp(normalizedLocation, "i") }
+    }).select("name phone email experience specialization location ratings");
+
+    // 🧩 6. Check technician work status
+    const techniciansWithStatus = [];
+    for (const tech of technicians) {
+      const inWork = await Work.findOne({
+        assignedTechnician: tech._id,
+        date: workDate,
+        status: { $in: ["taken", "approved"] }
+      });
+
+      techniciansWithStatus.push({
+        ...tech.toObject(),
+        employeeStatus: inWork ? "in work" : "available"
+      });
+    }
+
+    // 🧩 7. Save and respond
+    await work.save();
+
+    res.status(201).json({
+      message: "Work request submitted",
+      work,
+      matchingTechnicians: techniciansWithStatus.length
+        ? techniciansWithStatus
+        : "No matching technicians found"
+    });
+
+  } catch (err) {
+    console.error("Technician Search Error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// adjust path/name if needed
+
+exports.bookTechnician = async (req, res) => {
+  try {
+    const { workId, technicianId, serviceType, description, location, date } = req.body;
+    const userId = req.user._id;
+
+    if (!technicianId || !date || !workId) {
+      return res.status(400).json({ message: "Work ID, Technician ID and date are required" });
+    }
+
+    const workDate = new Date(date);
+    if (isNaN(workDate.getTime())) {
+      return res.status(400).json({ message: "Invalid date format" });
+    }
+
+    // 🔹 Find technician
+    const technician = await User.findById(technicianId);
+    if (!technician) {
+      return res.status(404).json({ message: "Technician not found" });
+    }
+
+    // 🔹 Check if technician already booked or busy that date
+    const conflictingBooking = await Booking.findOne({
+      technician: technicianId,
+      date: workDate,
+      status: { $in: ["open", "in work"] }
+    });
+
+    const conflictingWork = await Work.findOne({
+      assignedTechnician: technicianId,
+      date: workDate,
+      status: { $in: ["taken", "approved", "inprogress"] }
+    });
+
+    if (conflictingBooking || conflictingWork) {
+      return res.status(400).json({ message: "Technician already booked on this date" });
+    }
+
+    // 🔹 Create booking record
+    const booking = await Booking.create({
+      user: userId,
+      technician: technicianId,
+      serviceType,
+      description,
+      location,
+      date: workDate,
+      status: "open"
+    });
+
+    // 🔹 Update technician stats (optional)
+    await User.findByIdAndUpdate(technicianId, { $inc: { totalJobs: 1 } });
+
+    // 🔹 Assign technician to the work properly
+    const updatedWork = await Work.findByIdAndUpdate(
+      workId,
+      { assignedTechnician: technicianId, status: "taken" },
+      { new: true }
+    );
+
+    if (!updatedWork) {
+      return res.status(404).json({ message: "Work not found for assignment" });
+    }
+
+    // ✅ All done
+    return res.status(201).json({
+      message: "Booking confirmed and work assigned to technician",
+      booking,
+      work: updatedWork
+    });
+
+  } catch (err) {
+    console.error("Booking Error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+exports.WorkStart = async (req, res) => {
+  try {
+    const { workId } = req.body;
+    const technicianId = req.user._id; // assuming technician starts it
+
+    if (!workId) {
+      return res.status(400).json({ message: "Work ID is required" });
+    }
+
+    const work = await Work.findById(workId);
+    if (!work) {
+      return res.status(404).json({ message: "Work not found" });
+    }
+
+    if (String(work.assignedTechnician) !== String(technicianId)) {
+      return res.status(403).json({ message: "You are not assigned to this work" });
+    }
+
+    // Start the work
+    work.status = "inprogress";
+    work.startedAt = new Date();
+    await work.save();
+
+    // Update technician status (optional if you track availability)
+    await User.findByIdAndUpdate(technicianId, { employeeStatus: "in work" });
+
+    res.status(200).json({
+      message: "Work has been started successfully",
+      work
+    });
+  } catch (err) {
+    console.error("Work Start Error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+
+exports.WorkComplete = async (req, res) => {
+  try {
+    const { workId } = req.body;
+    const technicianId = req.user._id;
+
+    if (!workId) {
+      return res.status(400).json({ message: "Work ID is required" });
+    }
+
+    const work = await Work.findById(workId);
+    if (!work) {
+      return res.status(404).json({ message: "Work not found" });
+    }
+
+   
+    if (String(work.assignedTechnician) !== String(technicianId)) {
+      return res.status(403).json({ message: "You are not assigned to this work" });
+    }
+
+   
+    work.status = "approved";  
+    work.completedAt = new Date();
+    await work.save();
+
+    // ✅ Technician available again
+    await User.findByIdAndUpdate(technicianId, {
+      availability: true   // from your schema
+    });
+
+    res.status(200).json({
+      message: "Work marked as completed and technician is now available",
+      work
+    });
+
+  } catch (err) {
+    console.error("Work Complete Error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
