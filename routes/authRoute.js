@@ -2,7 +2,11 @@ const express = require("express");
 const passport = require("passport");
 const jwt = require("jsonwebtoken");
 const User = require("../model/user");
+<<<<<<< HEAD
 const { register, login,verifyEmail,registerClient } = require("../controllers/authController");
+=======
+const { register, login,verifyEmail} = require("../controllers/authController");
+>>>>>>> b60dede (add facebook)
 
 const router = express.Router();
 
@@ -10,6 +14,7 @@ const router = express.Router();
 router.post("/register", register);
 router.post("/login", login);
 router.post("/verify-otp", verifyEmail);
+<<<<<<< HEAD
 
 router.post("/client-register", registerClient );
 
@@ -20,6 +25,8 @@ router.post("/client-register", registerClient );
 
 
 
+=======
+>>>>>>> b60dede (add facebook)
 //  Google Login (only for clients)
 router.get(
   "/google",

@@ -69,4 +69,8 @@ verifyTransporter().catch(() => {
   console.warn("⚠️ Please check your SMTP configuration and environment variables.");
 });
 
+<<<<<<< HEAD
 module.exports = sendEmail;
+=======
+module.exports = sendEmail;
+>>>>>>> b60dede (add facebook)
