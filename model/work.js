@@ -57,9 +57,9 @@ const workSchema = new mongoose.Schema(
     },
 
     
-    beforphoto: { type: String , requiered:true },
+    beforphoto: { type: String  },
 
-    afterphoto: { type: String , required:true},
+    afterphoto: { type: String },
 
     
     invoice: {

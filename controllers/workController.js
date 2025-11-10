@@ -342,23 +342,23 @@ exports.WorkStart = async (req, res) => {
       onDuty: true,
       availability: false,
     });
-await sendNotification(
-  technicianId,
-  "technician",
-  "Job Status Updated",
-  `You have started work (${work.serviceType}).`,
-  "info",
-  `/technician/work/${work._id}`
-);
+// await sendNotification(
+//   technicianId,
+//   "technician",
+//   "Job Status Updated",
+//   `You have started work (${work.serviceType}).`,
+//   "info",
+//   `/technician/work/${work._id}`
+// );
 
-await sendNotification(
-  work.client,
-  "client",
-  "Work In Progress",
-  `Your job (${work.serviceType}) has been marked as in-progress.`,
-  "info",
-  `/client/work/${work._id}`
-);
+// await sendNotification(
+//   work.client,
+//   "client",
+//   "Work In Progress",
+//   `Your job (${work.serviceType}) has been marked as in-progress.`,
+//   "info",
+//   `/client/work/${work._id}`
+// );
 
     
     await Booking.findOneAndUpdate(
@@ -498,23 +498,23 @@ exports.WorkComplete = async (req, res) => {
       invoice: work.invoice,
       paymentLink,
     });
-    await sendNotification(
-  technicianId,
-  "technician",
-  "Job Completed",
-  `You successfully completed ${work.serviceType}.`,
-  "success",
-  `/technician/work/${work._id}`
-);
+//     await sendNotification(
+//   technicianId,
+//   "technician",
+//   "Job Completed",
+//   `You successfully completed ${work.serviceType}.`,
+//   "success",
+//   `/technician/work/${work._id}`
+// );
 
-await sendNotification(
-  work.client,
-  "client",
-  "Job Completed",
-  `Your job (${work.serviceType}) is completed. Invoice sent via email.`,
-  "success",
-  `/client/work/${work._id}`
-);
+// await sendNotification(
+//   work.client,
+//   "client",
+//   "Job Completed",
+//   `Your job (${work.serviceType}) is completed. Invoice sent via email.`,
+//   "success",
+//   `/client/work/${work._id}`
+// );
 
 
   } catch (err) {
