@@ -39,6 +39,9 @@ app.use('/api', require('./routes/admin'));
 app.use('/otp',require('./routes/otpRoutes'))
 app.use('/forget',require('./routes/forgotpassword'))
 app.use('/service',require('./routes/service'))
+app.use('/technicaian',require('./routes/technicianRoutes'))
+
+
 // ✅ MongoDB Connection (unchanged)
 mongoose.connect(process.env.MONGO_URL)
   .then(() => console.log('✅ MongoDB connected'))
