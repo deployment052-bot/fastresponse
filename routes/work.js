@@ -11,7 +11,7 @@ const {
   WorkStart,
   WorkComplete,
   trackTechnician,
-  updateLocation,getClientWorkStatus,reportWorkIssue,getAdminNotifications
+  updateLocation,getClientWorkStatus,reportWorkIssue,getAdminNotifications,getLocation,saveLocation
 } = require('../controllers/workController');
 const { 
  completeWorkAndGenerateBill ,getTechnicianSummary
@@ -45,6 +45,11 @@ router.get('/track-technician/:workId',protect,trackTechnician)
 
 router.get('/client-work/:workId',protect, authorize('client'),getClientWorkStatus)
 
+
+router.post("/savelocation", protect,authorize('client'), saveLocation);
+
+
+router.get("/getlocation", protect,authorize('client'), getLocation);
 
 
 module.exports = router;
