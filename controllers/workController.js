@@ -45,27 +45,26 @@ exports.createWork = async (req, res) => {
     const client = await User.findById(clientId);
     if (!client) return res.status(404).json({ message: "Client not found" });
 
-    // 📍 Determine which coordinates to use
+    // ✅ Added: Try to auto-use saved location from User if lat/lng missing
     let finalLat = lat;
     let finalLng = lng;
 
     if (!lat || !lng) {
-      // 🧭 Use client's saved profile location if available
       if (client.coordinates?.lat && client.coordinates?.lng) {
         finalLat = client.coordinates.lat;
         finalLng = client.coordinates.lng;
       } else {
-        return res.status(400).json({ message: "Location coordinates missing" });
+        return res.status(400).json({ message: "Location coordinates missing. Please save your location first." });
       }
     } else {
-      // ✅ If frontend provided new location, update client profile
+      // ✅ If frontend sent lat/lng, update user’s saved coordinates too
       await User.findByIdAndUpdate(clientId, {
         coordinates: { lat: finalLat, lng: finalLng },
         lastLocationUpdate: new Date()
       });
     }
 
-    // ✅ Create new work (always allowed)
+    // ✅ Create Work normally
     const work = await Work.create({
       client: clientId,
       serviceType,
@@ -99,7 +98,7 @@ exports.createWork = async (req, res) => {
       });
     }
 
-    // 📨 Send client notification
+    // 📨 Send client notification (commented intentionally)
     // await sendNotification(
     //   work.client,
     //   "client",
@@ -124,6 +123,7 @@ exports.createWork = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
 
 
 
@@ -980,5 +980,47 @@ exports.confirmPayment = async (req, res) => {
   } catch (err) {
     console.error("Confirm Payment Error:", err);
     res.status(500).json({ message: "Server error while confirming payment." });
+  }
+};
+exports.saveLocation = async (req, res) => {
+  try {
+    const { lat, lng } = req.body;
+    const userId = req.user._id;
+
+    if (!lat || !lng)
+      return res.status(400).json({ message: "Latitude and longitude required" });
+
+    // Update user's saved coordinates
+    await User.findByIdAndUpdate(userId, {
+      coordinates: { lat, lng },
+      lastLocationUpdate: new Date(),
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Location saved successfully",
+      coordinates: { lat, lng },
+    });
+  } catch (error) {
+    console.error("Save Location Error:", error);
+    res.status(500).json({ message: "Failed to save location" });
+  }
+};
+
+// 📍 Get Saved Location
+exports.getLocation = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user || !user.coordinates)
+      return res.status(404).json({ message: "No saved location found" });
+
+    res.status(200).json({
+      success: true,
+      coordinates: user.coordinates,
+      lastUpdated: user.lastLocationUpdate,
+    });
+  } catch (error) {
+    console.error("Get Location Error:", error);
+    res.status(500).json({ message: "Failed to fetch location" });
   }
 };
