@@ -33,6 +33,9 @@ const workSchema = new mongoose.Schema(
         "open",
         "taken",
         "approved",
+
+        "reject",
+
         "dispatch",
         "inprogress",
         "completed",
@@ -57,7 +60,11 @@ const workSchema = new mongoose.Schema(
     },
 
     
+
+    beforphoto: { type: String },
+
     beforphoto: { type: String  },
+
 
     afterphoto: { type: String },
 
@@ -82,6 +89,14 @@ const workSchema = new mongoose.Schema(
     billId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Bill",
+    },
+          // 💰 Payment Tracking
+    payment: {
+      method: { type: String, enum: ["cash", "upi"], default: null },
+      status: { type: String, enum: ["pending", "confirmed"], default: "pending" },
+      confirmedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, // technician
+      confirmedAt: { type: Date },
+      paidAt: { type: Date }, // client side payment time
     },
 
     // 👷 Who completed the work
