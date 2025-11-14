@@ -275,49 +275,78 @@ exports.findMatchingTechnicians = async (req, res) => {
 
 exports.bookTechnician = async (req, res) => {
   try {
-    const { workId, technicianId, serviceType, serviceCharge, description, date, time } = req.body;
+    const { 
+      workId,
+      technicianId,
+      serviceType,
+      serviceCharge,
+      description,
+      date,
+      time
+    } = req.body;
+
     const userId = req.user._id;
 
     if (!technicianId || !workId)
       return res.status(400).json({ message: "Work ID and Technician ID are required" });
 
-    // ------------------------------------------------------------
-    // ✅ FRONTEND FORMAT
-    // date = "2025-11-28"
-    // time = "09:00 AM"
-    // ------------------------------------------------------------
+    if (!date || !time)
+      return res.status(400).json({ message: "Date and Time are required" });
 
-    if (!date || !time) {
-      return res.status(400).json({ message: "Date & Time both required" });
+    // ------------------------------------------------------------------
+    // ✔️ DATE : Ensure proper padding (YYYY-MM-DD)
+    // ------------------------------------------------------------------
+    let [yyyy, mm, dd] = date.split("-");
+
+    if (!yyyy || !mm || !dd) {
+      return res.status(400).json({ message: "Invalid date format." });
     }
 
-    // ------------------------------------------------------------
-    // 🧮 Convert FE date "2025-11-28" → 28-11-2025
-    // ------------------------------------------------------------
-    const [yyyy, mm, dd] = date.split("-");
-    const formattedDate = `${dd}-${mm}-${yyyy}`;
+    mm = mm.padStart(2, "0");
+    dd = dd.padStart(2, "0");
 
-    // ------------------------------------------------------------
-    // 🕒 Convert "09:00 AM" → 09:00 (24 hr)
-    // ------------------------------------------------------------
-    let formattedTime = time;
-    let raw24Time = null;
+    // ------------------------------------------------------------------
+    // ✔️ UNIVERSAL TIME PARSER (handles all cases)
+    // ------------------------------------------------------------------
+    let finalTime = time.trim().toUpperCase();
 
-    const parsed = new Date(`1970-01-01T${formattedTime}`);
-    raw24Time = parsed.toLocaleTimeString("en-GB", { hour12: false });
+    // Remove all double spaces
+    finalTime = finalTime.replace(/\s+/g, " ");
 
-    // ------------------------------------------------------------
-    // 📌 Combine final date+time into JS Date
-    // ------------------------------------------------------------
-    const isoDate = `${yyyy}-${mm}-${dd}T${raw24Time}`;
-    const workDate = new Date(isoDate);
+    // Ensure space before AM/PM
+    finalTime = finalTime.replace(/(AM|PM)/, " $1").trim();
 
-    if (isNaN(workDate.getTime()))
-      return res.status(400).json({ message: "Invalid date/time" });
+    let parts = finalTime.split(" ");
+    if (parts.length !== 2) {
+      return res.status(400).json({ message: "Invalid time format." });
+    }
 
-    // ------------------------------------------------------------
-    // 🔍 Fetch DB Data
-    // ------------------------------------------------------------
+    let [rawTime, modifier] = parts;
+    if (!modifier || !["AM", "PM"].includes(modifier))
+      return res.status(400).json({ message: "Invalid time format (AM/PM missing)" });
+
+    let [hours, minutes] = rawTime.split(":");
+    hours = parseInt(hours);
+    minutes = minutes.padStart(2, "0");
+
+    if (modifier === "PM" && hours < 12) hours += 12;
+    if (modifier === "AM" && hours === 12) hours = 0;
+
+    hours = String(hours).padStart(2, "0");
+
+    // ------------------------------------------------------------------
+    // ✔️ Create ISO datetime
+    // ------------------------------------------------------------------
+    const isoDateTime = `${yyyy}-${mm}-${dd}T${hours}:${minutes}:00`;
+
+    const workDate = new Date(isoDateTime);
+    if (isNaN(workDate.getTime())) {
+      return res.status(400).json({ message: "Invalid date or time format" });
+    }
+
+    // ------------------------------------------------------------------
+    // ✔️ Fetch Users
+    // ------------------------------------------------------------------
     const client = await User.findById(userId);
     if (!client) return res.status(404).json({ message: "Client not found" });
 
@@ -327,71 +356,115 @@ exports.bookTechnician = async (req, res) => {
     const work = await Work.findById(workId);
     if (!work) return res.status(404).json({ message: "Work not found" });
 
-    // Duplicate Booking Check
+    // ------------------------------------------------------------------
+    // ✔️ Prevent duplicate booking
+    // ------------------------------------------------------------------
     const duplicateBooking = await Booking.findOne({
       user: userId,
       technician: technicianId,
       serviceType,
-      status: ["open", "taken", "dispatch", "inprogress"],
+      status: { $in: ["open", "taken", "dispatch", "inprogress"] }
     });
 
     if (duplicateBooking) {
       return res.status(400).json({
-        message: `You already booked technician ${technician.name} earlier for ${serviceType}.`,
+        message: `You already booked technician ${technician.name} for ${serviceType}.`,
       });
     }
 
-    // ------------------------------------------------------------
-    // 📌 Create Booking
-    // ------------------------------------------------------------
+    // ------------------------------------------------------------------
+    // ✔️ Technician availability
+    // ------------------------------------------------------------------
+    const conflict = await Work.findOne({
+      assignedTechnician: technicianId,
+      status: { $in: ["taken", "dispatch", "inprogress"] }
+    });
+
+    if (conflict)
+      return res.status(400).json({ message: "Technician is already assigned to another work." });
+
+    // ------------------------------------------------------------------
+    // ✔️ Booking Details
+    // ------------------------------------------------------------------
+    const bookingLocation = work.location || client.location || "Not available";
+    const bookingAddress = client.address || "Not available";
+
     const booking = await Booking.create({
       user: userId,
       technician: technicianId,
       serviceType,
       serviceCharge,
       description,
-      location: work.location,
-      address: client.address,
+      location: bookingLocation,
+      address: bookingAddress,
       date: workDate,
-      formattedDate,
-      formattedTime,
+      formattedDate: date,
+      formattedTime: time,
       status: "open",
     });
 
-    // ------------------------------------------------------------
-    // 📌 Update work & technician
-    // ------------------------------------------------------------
+    // ------------------------------------------------------------------
+    // ✔️ Update work & technician
+    // ------------------------------------------------------------------
     const updatedWork = await Work.findByIdAndUpdate(
       workId,
       { assignedTechnician: technicianId, status: "taken" },
       { new: true }
-    );
+    ).populate("assignedTechnician");
 
     await User.findByIdAndUpdate(technicianId, {
       technicianStatus: "dispatched",
       onDuty: true,
-      $inc: { totalJobs: 1 },
+      $inc: { totalJobs: 1 }
     });
 
-    // ------------------------------------------------------------
-    // ETA (Optional)
-    // ------------------------------------------------------------
+    // ------------------------------------------------------------------
+    // ETA (same as your code)
+    // ------------------------------------------------------------------
     let etaMessage = "ETA not available";
+
+    try {
+      const key = process.env.GOOGLE_MAPS_API_KEY;
+      const techLoc = technician.coordinates;
+      const workLoc = updatedWork.coordinates;
+
+      if (techLoc?.lat && techLoc?.lng && workLoc?.lat && workLoc?.lng) {
+        const resp = await axios.get(
+          `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${techLoc.lat},${techLoc.lng}&destinations=${workLoc.lat},${workLoc.lng}&mode=driving&departure_time=now&traffic_model=best_guess&key=${key}`
+        );
+
+        const eta = resp.data?.rows?.[0]?.elements?.[0];
+
+        if (eta?.status === "OK") {
+          const mins = Math.round(eta.duration_in_traffic.value / 60);
+          etaMessage = `Technician ${technician.name} will arrive in approx ${mins} minutes.`;
+        }
+      }
+    } catch (_) {}
 
     res.status(201).json({
       message: "Technician booked successfully.",
       booking,
       work: updatedWork,
-      formattedDate,
-      formattedTime,
-      eta: etaMessage,
+      formattedDate: date,
+      formattedTime: time,
+      technician: {
+        name: technician.name,
+        phone: technician.phone,
+        location: technician.location,
+        experience: technician.experience,
+        specialization: technician.specialization,
+      },
+      eta: etaMessage
     });
 
   } catch (err) {
     console.error("Book Technician Error:", err);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Server error while booking technician" });
   }
 };
+
+
 
 
 
