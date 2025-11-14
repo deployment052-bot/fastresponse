@@ -281,73 +281,43 @@ exports.bookTechnician = async (req, res) => {
     if (!technicianId || !workId)
       return res.status(400).json({ message: "Work ID and Technician ID are required" });
 
-    // --------------------------------------------------------------------
-    // 📅 Convert DATE → DD-MM-YYYY
-    // --------------------------------------------------------------------
-    let formattedDate = null;
-    let jsDate = null;
+    // ------------------------------------------------------------
+    // ✅ FRONTEND FORMAT
+    // date = "2025-11-28"
+    // time = "09:00 AM"
+    // ------------------------------------------------------------
 
-    if (date) {
-      const d = new Date(date);
-      if (isNaN(d.getTime())) {
-        return res.status(400).json({ message: "Invalid date format" });
-      }
-
-      const day = String(d.getDate()).padStart(2, "0");
-      const month = String(d.getMonth() + 1).padStart(2, "0");
-      const year = d.getFullYear();
-
-      formattedDate = `${day}-${month}-${year}`;
-
-      jsDate = d;
+    if (!date || !time) {
+      return res.status(400).json({ message: "Date & Time both required" });
     }
 
-    // --------------------------------------------------------------------
-    // ⏰ Convert TIME → 12 Hour format (hh:mm AM/PM)
-    // --------------------------------------------------------------------
-    let formattedTime = null;
+    // ------------------------------------------------------------
+    // 🧮 Convert FE date "2025-11-28" → 28-11-2025
+    // ------------------------------------------------------------
+    const [yyyy, mm, dd] = date.split("-");
+    const formattedDate = `${dd}-${mm}-${yyyy}`;
+
+    // ------------------------------------------------------------
+    // 🕒 Convert "09:00 AM" → 09:00 (24 hr)
+    // ------------------------------------------------------------
+    let formattedTime = time;
     let raw24Time = null;
 
-    if (time) {
-      let t = time;
+    const parsed = new Date(`1970-01-01T${formattedTime}`);
+    raw24Time = parsed.toLocaleTimeString("en-GB", { hour12: false });
 
-      // Convert "15:45" → "3:45 PM"
-      if (!time.includes("AM") && !time.includes("PM")) {
-        const [h, m] = time.split(":");
-        const hour = parseInt(h);
-        const suffix = hour >= 12 ? "PM" : "AM";
-        const hr12 = hour % 12 || 12;
-        formattedTime = `${hr12}:${m} ${suffix}`;
-      } else {
-        formattedTime = time;
-      }
+    // ------------------------------------------------------------
+    // 📌 Combine final date+time into JS Date
+    // ------------------------------------------------------------
+    const isoDate = `${yyyy}-${mm}-${dd}T${raw24Time}`;
+    const workDate = new Date(isoDate);
 
-      // Convert back into 24-hour for saving Date()
-      const parsed = new Date(`1970-01-01T${formattedTime}`);
-      raw24Time = parsed.toLocaleTimeString("en-GB", { hour12: false });
-    }
+    if (isNaN(workDate.getTime()))
+      return res.status(400).json({ message: "Invalid date/time" });
 
-    // --------------------------------------------------------------------
-    // 🧮 Final: Combine DATE + TIME into JS Date
-    // --------------------------------------------------------------------
-    let workDate = new Date();
-
-    if (formattedDate && raw24Time) {
-      // Convert formattedDate "27-11-2025" → 2025-11-27
-      const [dd, mm, yyyy] = formattedDate.split("-");
-      const isoDate = `${yyyy}-${mm}-${dd}T${raw24Time}`;
-      workDate = new Date(isoDate);
-    } else if (formattedDate) {
-      workDate = jsDate;
-    }
-
-    if (isNaN(workDate.getTime())) {
-      return res.status(400).json({ message: "Invalid combined date/time" });
-    }
-
-    // --------------------------------------------------------------------
-    // 🔍 Fetch Users
-    // --------------------------------------------------------------------
+    // ------------------------------------------------------------
+    // 🔍 Fetch DB Data
+    // ------------------------------------------------------------
     const client = await User.findById(userId);
     if (!client) return res.status(404).json({ message: "Client not found" });
 
@@ -357,12 +327,12 @@ exports.bookTechnician = async (req, res) => {
     const work = await Work.findById(workId);
     if (!work) return res.status(404).json({ message: "Work not found" });
 
-    // 🚫 Prevent duplicate booking
+    // Duplicate Booking Check
     const duplicateBooking = await Booking.findOne({
       user: userId,
       technician: technicianId,
       serviceType,
-      status: { $in: ["open", "taken", "dispatch", "inprogress"] },
+      status: ["open", "taken", "dispatch", "inprogress"],
     });
 
     if (duplicateBooking) {
@@ -371,49 +341,31 @@ exports.bookTechnician = async (req, res) => {
       });
     }
 
-    // 🚫 Technician busy check
-    const conflict = await Work.findOne({
-      assignedTechnician: technicianId,
-      status: { $in: ["taken", "dispatch", "inprogress"] }
-    });
-
-    if (conflict)
-      return res.status(400).json({ message: "Technician is already assigned to another work." });
-
-    // --------------------------------------------------------------------
-    // 📌 Correct location & address
-    // --------------------------------------------------------------------
-    const bookingLocation = work.location || "Not available";
-    const bookingAddress = client.address || "Not available";
-
-    // --------------------------------------------------------------------
-    // 📝 Create Booking
-    // --------------------------------------------------------------------
+    // ------------------------------------------------------------
+    // 📌 Create Booking
+    // ------------------------------------------------------------
     const booking = await Booking.create({
       user: userId,
       technician: technicianId,
       serviceType,
       serviceCharge,
       description,
-
-      location: bookingLocation,
-      address: bookingAddress,
-
+      location: work.location,
+      address: client.address,
       date: workDate,
       formattedDate,
       formattedTime,
-
       status: "open",
     });
 
-    // --------------------------------------------------------------------
-    // 🔄 Update WORK & TECHNICIAN
-    // --------------------------------------------------------------------
+    // ------------------------------------------------------------
+    // 📌 Update work & technician
+    // ------------------------------------------------------------
     const updatedWork = await Work.findByIdAndUpdate(
       workId,
       { assignedTechnician: technicianId, status: "taken" },
       { new: true }
-    ).populate("assignedTechnician", "name phone email experience location specialization");
+    );
 
     await User.findByIdAndUpdate(technicianId, {
       technicianStatus: "dispatched",
@@ -421,54 +373,26 @@ exports.bookTechnician = async (req, res) => {
       $inc: { totalJobs: 1 },
     });
 
-    // --------------------------------------------------------------------
-    // 🧮 ETA Calculation
-    // --------------------------------------------------------------------
+    // ------------------------------------------------------------
+    // ETA (Optional)
+    // ------------------------------------------------------------
     let etaMessage = "ETA not available";
-    const key = process.env.GOOGLE_MAPS_API_KEY;
-    const techLoc = technician.coordinates;
-    const workLoc = updatedWork.coordinates;
-
-    if (techLoc?.lat && techLoc?.lng && workLoc?.lat && workLoc?.lng) {
-      try {
-        const resp = await axios.get(
-          `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${techLoc.lat},${techLoc.lng}&destinations=${workLoc.lat},${workLoc.lng}&mode=driving&departure_time=now&traffic_model=best_guess&key=${key}`
-        );
-
-        const eta = resp.data?.rows?.[0]?.elements?.[0];
-        if (eta?.status === "OK") {
-          const minutes = Math.round(eta.duration_in_traffic.value / 60);
-          etaMessage = `Technician ${technician.name} will arrive in approx ${minutes} minutes.`;
-        }
-      } catch (err) {
-        console.log("ETA error:", err.message);
-      }
-    }
 
     res.status(201).json({
       message: "Technician booked successfully.",
       booking,
       work: updatedWork,
-
       formattedDate,
       formattedTime,
-
-      technician: {
-        name: technician.name,
-        phone: technician.phone,
-        location: technician.location,
-        experience: technician.experience,
-        specialization: technician.specialization,
-      },
-
       eta: etaMessage,
     });
 
   } catch (err) {
     console.error("Book Technician Error:", err);
-    res.status(500).json({ message: "Server error while booking technician" });
+    res.status(500).json({ message: "Server error" });
   }
 };
+
 
 
 
