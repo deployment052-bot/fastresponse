@@ -13,6 +13,25 @@ const generateToken = (id) => {
   return `REQ-${new Date().getFullYear()}-${String(id).padStart(5, '0')}`;
 };
 
+function parseClientDate(input) {
+  let [d, m, y] = input.split("-");
+
+  if (!d || !m || !y) return null;
+
+  d = d.padStart(2, "0");
+  m = m.padStart(2, "0");
+
+  const iso = `${y}-${m}-${d}`;
+  const objectDate = new Date(iso);
+
+  if (isNaN(objectDate.getTime())) return null;
+
+  return {
+    iso,
+    formatted: `${d}-${m}-${y}`,
+    objectDate
+  };
+}
 exports.createWork = async (req, res) => {
   try {
     const { 
@@ -24,8 +43,8 @@ exports.createWork = async (req, res) => {
       technicianId, 
       lat, 
       lng,
-      date,
-      time
+      date,     // DD-MM-YYYY
+      time      // ignored
     } = req.body;
 
     const clientId = req.user._id;
@@ -36,74 +55,38 @@ exports.createWork = async (req, res) => {
     // 🧩 Normalize specialization
     let specs = [];
     if (typeof specialization === "string") {
-      specs = specialization.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+      specs = specialization.split(",").map(s => s.trim().toLowerCase());
     } else if (Array.isArray(specialization)) {
       specs = specialization.map(s => s.trim().toLowerCase());
     }
 
     const normalizedLocation = location.trim().toLowerCase();
 
-    // 🧍‍♂️ Fetch client details
+    // 🧍 Fetch client
     const client = await User.findById(clientId);
     if (!client) return res.status(404).json({ message: "Client not found" });
 
-    // 🌎 Final Coordinates
-    let finalLat = lat;
-    let finalLng = lng;
+    // 🌎 Coordinates handling
+    let finalLat = lat || client.coordinates?.lat;
+    let finalLng = lng || client.coordinates?.lng;
 
-    if (!lat || !lng) {
-      if (client.coordinates?.lat && client.coordinates?.lng) {
-        finalLat = client.coordinates.lat;
-        finalLng = client.coordinates.lng;
-      } else {
-        return res.status(400).json({ message: "Location coordinates missing. Please save your location first." });
-      }
-    } else {
-      await User.findByIdAndUpdate(clientId, {
-        coordinates: { lat: finalLat, lng: finalLng },
-        lastLocationUpdate: new Date()
-      });
+    if (!finalLat || !finalLng) {
+      return res.status(400).json({ message: "Location coordinates missing." });
     }
 
     // -------------------------------------------------------------
-    // 📆 **Date Format Conversion (DD-MM-YYYY)**
+    // 📆 PARSE DATE (DD-MM-YYYY)
     // -------------------------------------------------------------
-    let formattedDate = null;
+    let parsedDate = null;
     if (date) {
-      const d = new Date(date);
-      if (isNaN(d.getTime())) {
-        return res.status(400).json({ message: "Invalid date format" });
-      }
-
-      const day = String(d.getDate()).padStart(2, "0");
-      const month = String(d.getMonth() + 1).padStart(2, "0");
-      const year = d.getFullYear();
-
-      formattedDate = `${day}-${month}-${year}`;
-    }
-
-    // -------------------------------------------------------------
-    // ⏰ **Time Format Conversion → 12 Hour (hh:mm AM/PM)**
-    // -------------------------------------------------------------
-    let formattedTime = null;
-    if (time) {
-      let rawTime = time;
-
-      // If time is like: 15:45
-      if (!time.includes("AM") && !time.includes("PM")) {
-        const [hours, minutes] = rawTime.split(":");
-        const h = parseInt(hours);
-        const suffix = h >= 12 ? "PM" : "AM";
-        const hr12 = h % 12 || 12;
-        formattedTime = `${hr12}:${minutes} ${suffix}`;
-      } else {
-        // Already in 12 hour format
-        formattedTime = time;
+      parsedDate = parseClientDate(date);
+      if (!parsedDate) {
+        return res.status(400).json({ message: "Invalid date format (DD-MM-YYYY)" });
       }
     }
 
     // -------------------------------------------------------------
-    // 🏗️ Create Work
+    // 🏗️ Create Work (TIME REMOVED)
     // -------------------------------------------------------------
     const work = await Work.create({
       client: clientId,
@@ -120,21 +103,16 @@ exports.createWork = async (req, res) => {
 
       token: `REQ-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`,
 
-      // SAVE BOTH RAW + FORMATTED VALUES
-      date: date || null,
-      formattedDate,
-      time: time || null,
-      formattedTime
+      // 📆 SAVING DATE ONLY
+      date: parsedDate ? parsedDate.objectDate : null,   // ISO DATE
+      formattedDate: parsedDate ? parsedDate.formatted : null, // DD-MM-YYYY
+
+      // ⏰ TIME IGNORED COMPLETELY
+      time: "",
+      formattedTime: ""
     });
 
-    // 🧑‍🔧 If technician pre-assigned
-    let assignedTechnicianDetails = null;
-    if (technicianId) {
-      assignedTechnicianDetails = await User.findById(technicianId)
-        .select("name phone email experience specialization location coordinates ratings");
-    }
-
-    // 🔍 Find matching technicians
+    // 🔍 Technician match list
     const technicians = await User.find({
       role: "technician",
       specialization: { $in: specs.map(s => new RegExp(s, "i")) },
@@ -158,13 +136,8 @@ exports.createWork = async (req, res) => {
       message: technicianId
         ? "Work created and assigned to technician"
         : "Work request submitted successfully",
-
       work,
-
-      assignedTechnician: assignedTechnicianDetails || null,
-      matchingTechnicians: techniciansWithStatus.length
-        ? techniciansWithStatus
-        : "No matching technicians found"
+      matchingTechnicians: techniciansWithStatus
     });
 
   } catch (err) {
@@ -273,6 +246,7 @@ exports.findMatchingTechnicians = async (req, res) => {
 
 
 
+// DATE FORMAT: D-MM-YYYY
 exports.bookTechnician = async (req, res) => {
   try {
     const { 
@@ -281,8 +255,8 @@ exports.bookTechnician = async (req, res) => {
       serviceType,
       serviceCharge,
       description,
-      date,
-      time
+      date,    // DD-MM-YYYY
+      time     // ignored
     } = req.body;
 
     const userId = req.user._id;
@@ -290,63 +264,16 @@ exports.bookTechnician = async (req, res) => {
     if (!technicianId || !workId)
       return res.status(400).json({ message: "Work ID and Technician ID are required" });
 
-    if (!date || !time)
-      return res.status(400).json({ message: "Date and Time are required" });
+    if (!date)
+      return res.status(400).json({ message: "Date required (DD-MM-YYYY)" });
 
-    // ------------------------------------------------------------------
-    // ✔️ DATE : Ensure proper padding (YYYY-MM-DD)
-    // ------------------------------------------------------------------
-    let [yyyy, mm, dd] = date.split("-");
-
-    if (!yyyy || !mm || !dd) {
-      return res.status(400).json({ message: "Invalid date format." });
+    // DATE PARSE
+    const parsedDate = parseClientDate(date);
+    if (!parsedDate) {
+      return res.status(400).json({ message: "Invalid date format (DD-MM-YYYY)" });
     }
 
-    mm = mm.padStart(2, "0");
-    dd = dd.padStart(2, "0");
-
-    // ------------------------------------------------------------------
-    // ✔️ UNIVERSAL TIME PARSER (handles all cases)
-    // ------------------------------------------------------------------
-    let finalTime = time.trim().toUpperCase();
-
-    // Remove all double spaces
-    finalTime = finalTime.replace(/\s+/g, " ");
-
-    // Ensure space before AM/PM
-    finalTime = finalTime.replace(/(AM|PM)/, " $1").trim();
-
-    let parts = finalTime.split(" ");
-    if (parts.length !== 2) {
-      return res.status(400).json({ message: "Invalid time format." });
-    }
-
-    let [rawTime, modifier] = parts;
-    if (!modifier || !["AM", "PM"].includes(modifier))
-      return res.status(400).json({ message: "Invalid time format (AM/PM missing)" });
-
-    let [hours, minutes] = rawTime.split(":");
-    hours = parseInt(hours);
-    minutes = minutes.padStart(2, "0");
-
-    if (modifier === "PM" && hours < 12) hours += 12;
-    if (modifier === "AM" && hours === 12) hours = 0;
-
-    hours = String(hours).padStart(2, "0");
-
-    // ------------------------------------------------------------------
-    // ✔️ Create ISO datetime
-    // ------------------------------------------------------------------
-    const isoDateTime = `${yyyy}-${mm}-${dd}T${hours}:${minutes}:00`;
-
-    const workDate = new Date(isoDateTime);
-    if (isNaN(workDate.getTime())) {
-      return res.status(400).json({ message: "Invalid date or time format" });
-    }
-
-    // ------------------------------------------------------------------
-    // ✔️ Fetch Users
-    // ------------------------------------------------------------------
+    // Fetch users
     const client = await User.findById(userId);
     if (!client) return res.status(404).json({ message: "Client not found" });
 
@@ -356,9 +283,7 @@ exports.bookTechnician = async (req, res) => {
     const work = await Work.findById(workId);
     if (!work) return res.status(404).json({ message: "Work not found" });
 
-    // ------------------------------------------------------------------
-    // ✔️ Prevent duplicate booking
-    // ------------------------------------------------------------------
+    // Duplicate booking
     const duplicateBooking = await Booking.findOne({
       user: userId,
       technician: technicianId,
@@ -368,94 +293,49 @@ exports.bookTechnician = async (req, res) => {
 
     if (duplicateBooking) {
       return res.status(400).json({
-        message: `You already booked technician ${technician.name} for ${serviceType}.`,
+        message: `You already booked technician ${technician.name} for ${serviceType}.`
       });
     }
 
-    // ------------------------------------------------------------------
-    // ✔️ Technician availability
-    // ------------------------------------------------------------------
+    // Technician conflict
     const conflict = await Work.findOne({
       assignedTechnician: technicianId,
       status: { $in: ["taken", "dispatch", "inprogress"] }
     });
 
-    if (conflict)
+    if (conflict) {
       return res.status(400).json({ message: "Technician is already assigned to another work." });
+    }
 
-    // ------------------------------------------------------------------
-    // ✔️ Booking Details
-    // ------------------------------------------------------------------
-    const bookingLocation = work.location || client.location || "Not available";
-    const bookingAddress = client.address || "Not available";
-
+    // Create booking
     const booking = await Booking.create({
       user: userId,
       technician: technicianId,
       serviceType,
       serviceCharge,
       description,
-      location: bookingLocation,
-      address: bookingAddress,
-      date: workDate,
-      formattedDate: date,
-      formattedTime: time,
-      status: "open",
+
+      location: work.location,
+      address: client.address || "Not available",
+
+      date: parsedDate.objectDate,       // ISO DATE
+      formattedDate: parsedDate.formatted, // DD-MM-YYYY
+      formattedTime: "", // time ignored
+
+      status: "open"
     });
 
-    // ------------------------------------------------------------------
-    // ✔️ Update work & technician
-    // ------------------------------------------------------------------
     const updatedWork = await Work.findByIdAndUpdate(
       workId,
       { assignedTechnician: technicianId, status: "taken" },
       { new: true }
-    ).populate("assignedTechnician");
-
-    await User.findByIdAndUpdate(technicianId, {
-      technicianStatus: "dispatched",
-      onDuty: true,
-      $inc: { totalJobs: 1 }
-    });
-
-    // ------------------------------------------------------------------
-    // ETA (same as your code)
-    // ------------------------------------------------------------------
-    let etaMessage = "ETA not available";
-
-    try {
-      const key = process.env.GOOGLE_MAPS_API_KEY;
-      const techLoc = technician.coordinates;
-      const workLoc = updatedWork.coordinates;
-
-      if (techLoc?.lat && techLoc?.lng && workLoc?.lat && workLoc?.lng) {
-        const resp = await axios.get(
-          `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${techLoc.lat},${techLoc.lng}&destinations=${workLoc.lat},${workLoc.lng}&mode=driving&departure_time=now&traffic_model=best_guess&key=${key}`
-        );
-
-        const eta = resp.data?.rows?.[0]?.elements?.[0];
-
-        if (eta?.status === "OK") {
-          const mins = Math.round(eta.duration_in_traffic.value / 60);
-          etaMessage = `Technician ${technician.name} will arrive in approx ${mins} minutes.`;
-        }
-      }
-    } catch (_) {}
+    );
 
     res.status(201).json({
       message: "Technician booked successfully.",
       booking,
       work: updatedWork,
-      formattedDate: date,
-      formattedTime: time,
-      technician: {
-        name: technician.name,
-        phone: technician.phone,
-        location: technician.location,
-        experience: technician.experience,
-        specialization: technician.specialization,
-      },
-      eta: etaMessage
+      formattedDate: parsedDate.formatted
     });
 
   } catch (err) {
@@ -463,6 +343,8 @@ exports.bookTechnician = async (req, res) => {
     res.status(500).json({ message: "Server error while booking technician" });
   }
 };
+
+
 
 
 
