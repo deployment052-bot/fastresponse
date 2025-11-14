@@ -14,24 +14,33 @@ const generateToken = (id) => {
 };
 
 function parseClientDate(input) {
-  let [d, m, y] = input.split("-");
+  if (!input) return null;
 
+  // Replace slashes with dashes
+  input = input.replace(/\//g, "-");
+
+  const [d, m, y] = input.split("-");
   if (!d || !m || !y) return null;
 
-  d = d.padStart(2, "0");
-  m = m.padStart(2, "0");
+  const day = d.padStart(2, "0");
+  const month = m.padStart(2, "0");
+  const year = y;
 
-  const iso = `${y}-${m}-${d}`;
-  const objectDate = new Date(iso);
+  const isoDate = `${year}-${month}-${day}`;
+  const objectDate = new Date(isoDate);
 
   if (isNaN(objectDate.getTime())) return null;
 
   return {
-    iso,
-    formatted: `${d}-${m}-${y}`,
+    iso: isoDate,
+    formatted: `${day}-${month}-${year}`,
     objectDate
   };
 }
+
+// ---------------------------
+// CREATE WORK
+// ---------------------------
 exports.createWork = async (req, res) => {
   try {
     const { 
@@ -43,8 +52,7 @@ exports.createWork = async (req, res) => {
       technicianId, 
       lat, 
       lng,
-      date,     // DD-MM-YYYY
-      time      // ignored
+      date // DD-MM-YYYY or DD/MM/YYYY
     } = req.body;
 
     const clientId = req.user._id;
@@ -52,42 +60,31 @@ exports.createWork = async (req, res) => {
     if (!serviceType || !specialization || !location)
       return res.status(400).json({ message: "Missing required fields" });
 
-    // 🧩 Normalize specialization
-    let specs = [];
-    if (typeof specialization === "string") {
-      specs = specialization.split(",").map(s => s.trim().toLowerCase());
-    } else if (Array.isArray(specialization)) {
-      specs = specialization.map(s => s.trim().toLowerCase());
-    }
+    // Normalize specialization
+    const specs = Array.isArray(specialization)
+      ? specialization.map(s => s.trim().toLowerCase())
+      : specialization.split(",").map(s => s.trim().toLowerCase());
 
     const normalizedLocation = location.trim().toLowerCase();
 
-    // 🧍 Fetch client
+    // Fetch client
     const client = await User.findById(clientId);
     if (!client) return res.status(404).json({ message: "Client not found" });
 
-    // 🌎 Coordinates handling
-    let finalLat = lat || client.coordinates?.lat;
-    let finalLng = lng || client.coordinates?.lng;
-
-    if (!finalLat || !finalLng) {
+    // Coordinates
+    const finalLat = lat || client.coordinates?.lat;
+    const finalLng = lng || client.coordinates?.lng;
+    if (!finalLat || !finalLng)
       return res.status(400).json({ message: "Location coordinates missing." });
-    }
 
-    // -------------------------------------------------------------
-    // 📆 PARSE DATE (DD-MM-YYYY)
-    // -------------------------------------------------------------
+    // Parse date
     let parsedDate = null;
     if (date) {
       parsedDate = parseClientDate(date);
-      if (!parsedDate) {
-        return res.status(400).json({ message: "Invalid date format (DD-MM-YYYY)" });
-      }
+      if (!parsedDate) return res.status(400).json({ message: "Invalid date format (DD-MM-YYYY)" });
     }
 
-    // -------------------------------------------------------------
-    // 🏗️ Create Work (TIME REMOVED)
-    // -------------------------------------------------------------
+    // Create Work
     const work = await Work.create({
       client: clientId,
       serviceType,
@@ -95,24 +92,17 @@ exports.createWork = async (req, res) => {
       description,
       serviceCharge,
       location: normalizedLocation,
-
       coordinates: { lat: finalLat, lng: finalLng },
-
       assignedTechnician: technicianId || null,
       status: technicianId ? "taken" : "open",
-
       token: `REQ-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`,
-
-      // 📆 SAVING DATE ONLY
-      date: parsedDate ? parsedDate.objectDate : null,   // ISO DATE
-      formattedDate: parsedDate ? parsedDate.formatted : null, // DD-MM-YYYY
-
-      // ⏰ TIME IGNORED COMPLETELY
+      date: parsedDate ? parsedDate.objectDate : null,
+      formattedDate: parsedDate ? parsedDate.formatted : null,
       time: "",
       formattedTime: ""
     });
 
-    // 🔍 Technician match list
+    // Fetch matching technicians
     const technicians = await User.find({
       role: "technician",
       specialization: { $in: specs.map(s => new RegExp(s, "i")) },
@@ -125,7 +115,6 @@ exports.createWork = async (req, res) => {
         assignedTechnician: tech._id,
         status: { $in: ["taken", "approved", "dispatch", "inprogress"] }
       });
-
       techniciansWithStatus.push({
         ...tech.toObject(),
         employeeStatus: inWork ? "in work" : "available"
@@ -145,6 +134,7 @@ exports.createWork = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
 
 
 
@@ -255,8 +245,7 @@ exports.bookTechnician = async (req, res) => {
       serviceType,
       serviceCharge,
       description,
-      date,    // DD-MM-YYYY
-      time     // ignored
+      date // DD-MM-YYYY or DD/MM/YYYY
     } = req.body;
 
     const userId = req.user._id;
@@ -267,11 +256,9 @@ exports.bookTechnician = async (req, res) => {
     if (!date)
       return res.status(400).json({ message: "Date required (DD-MM-YYYY)" });
 
-    // DATE PARSE
     const parsedDate = parseClientDate(date);
-    if (!parsedDate) {
+    if (!parsedDate)
       return res.status(400).json({ message: "Invalid date format (DD-MM-YYYY)" });
-    }
 
     // Fetch users
     const client = await User.findById(userId);
@@ -290,22 +277,16 @@ exports.bookTechnician = async (req, res) => {
       serviceType,
       status: { $in: ["open", "taken", "dispatch", "inprogress"] }
     });
-
-    if (duplicateBooking) {
-      return res.status(400).json({
-        message: `You already booked technician ${technician.name} for ${serviceType}.`
-      });
-    }
+    if (duplicateBooking) return res.status(400).json({
+      message: `You already booked technician ${technician.name} for ${serviceType}.`
+    });
 
     // Technician conflict
     const conflict = await Work.findOne({
       assignedTechnician: technicianId,
       status: { $in: ["taken", "dispatch", "inprogress"] }
     });
-
-    if (conflict) {
-      return res.status(400).json({ message: "Technician is already assigned to another work." });
-    }
+    if (conflict) return res.status(400).json({ message: "Technician is already assigned to another work." });
 
     // Create booking
     const booking = await Booking.create({
@@ -314,17 +295,15 @@ exports.bookTechnician = async (req, res) => {
       serviceType,
       serviceCharge,
       description,
-
       location: work.location,
       address: client.address || "Not available",
-
-      date: parsedDate.objectDate,       // ISO DATE
-      formattedDate: parsedDate.formatted, // DD-MM-YYYY
-      formattedTime: "", // time ignored
-
+      date: parsedDate.objectDate,
+      formattedDate: parsedDate.formatted,
+      formattedTime: "",
       status: "open"
     });
 
+    // Update work
     const updatedWork = await Work.findByIdAndUpdate(
       workId,
       { assignedTechnician: technicianId, status: "taken" },
@@ -343,7 +322,6 @@ exports.bookTechnician = async (req, res) => {
     res.status(500).json({ message: "Server error while booking technician" });
   }
 };
-
 
 
 
