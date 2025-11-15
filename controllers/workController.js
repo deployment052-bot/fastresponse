@@ -38,9 +38,6 @@ function parseClientDate(input) {
   };
 }
 
-// ---------------------------
-// CREATE WORK
-// ---------------------------
 exports.createWork = async (req, res) => {
   try {
     const { 
@@ -408,148 +405,6 @@ exports.WorkStart = async (req, res) => {
 
 
 
-exports.WorkComplete = async (req, res) => {
-  try {
-    const { workId, usedMaterials, serviceCharge, total, notes } = req.body;
-    const technicianId = req.user._id;
-    const afterphoto = req.file;
-
-    if (!workId) return res.status(400).json({ message: "Work ID is required" });
-
-    const work = await Work.findById(workId).populate("client");
-    if (!work) return res.status(404).json({ message: "Work not found" });
-
-    if (String(work.assignedTechnician) !== String(technicianId)) {
-      return res.status(403).json({ message: "You are not assigned to this work" });
-    }
-
- 
-    let afterPhotoUrl = "";
-    if (afterphoto) {
-      const uploadRes = await uploadToCloudinary(afterphoto.path, "work_after_photos");
-      afterPhotoUrl = uploadRes.secure_url;
-    }
-
-    let subtotal = serviceCharge || 0;
-    if (Array.isArray(usedMaterials)) {
-      usedMaterials.forEach((item) => {
-        subtotal += item.quantity * item.price;
-      });
-    }
-
-    
-    const invoiceNumber = `INV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-    if (!fs.existsSync("./invoices")) fs.mkdirSync("./invoices");
-    const filePath = `./invoices/${invoiceNumber}.pdf`;
-
-    await new Promise((resolve, reject) => {
-      const doc = new PDFDocument();
-      const stream = fs.createWriteStream(filePath);
-      doc.pipe(stream);
-
-      doc.fontSize(20).text("One Step Solution", { align: "center" });
-      doc.moveDown();
-      doc.fontSize(14).text("Service Completion Invoice", { align: "center" });
-      doc.moveDown();
-
-      doc.fontSize(12).text(`Invoice #: ${invoiceNumber}`);
-      doc.text(`Date: ${new Date().toLocaleDateString()}`);
-      doc.text(`Client: ${work.client.firstName} ${work.client.lastName}`);
-      doc.text(`Email: ${work.client.email}`);
-      doc.text(`Work ID: ${work._id}`);
-      doc.moveDown();
-
-      doc.font("Helvetica-Bold").text("Used Materials:");
-      doc.font("Helvetica");
-      if (usedMaterials?.length) {
-        usedMaterials.forEach((item) => {
-          doc.text(`${item.name} - Qty: ${item.quantity} × ₹${item.price} = ₹${item.quantity * item.price}`);
-        });
-      } else {
-        doc.text("No materials used.");
-      }
-
-      doc.moveDown();
-      doc.text(`Service Charge: ₹${serviceCharge || 0}`);
-      doc.text(`Subtotal: ₹${subtotal}`);
-      doc.text(`Total: ₹${total || subtotal}`);
-      doc.moveDown();
-      doc.text(`Notes: ${notes || "N/A"}`);
-
-      doc.end();
-
-      stream.on("finish", resolve);
-      stream.on("error", reject);
-    });
-
-
-    work.status = "completed";
-    work.completedAt = new Date();
-    work.invoice = { invoiceNumber, usedMaterials, serviceCharge, subtotal, total, pdfUrl: filePath };
-    work.afterphoto = afterPhotoUrl; 
-    await work.save();
-
-   
-    const paymentLink = `https://payment.one-step-solution.in/pay?workId=${work._id}`;
-    const pdfBuffer = fs.readFileSync(filePath);
-      const attachments = [
-        {
-          content: pdfBuffer.toString("base64"),
-          filename: `${invoiceNumber}.pdf`,
-          type: "application/pdf",
-          disposition: "attachment",
-        },
-      ];
-   
-    await sendemail(
-      work.client.email,
-      `Service Completed - ${invoiceNumber}`,
-      `
-      <p>Hello ${work.client.firstName},</p>
-      <p>Your service has been successfully completed by our technician.</p>
-      <p><b>Total Bill: ₹${total || subtotal}</b></p>
-      <p>You can make the payment securely using the link below:</p>
-      <p><a href="${paymentLink}" target="_blank" style="color:#007bff;">Click here to Pay Now</a></p>
-      <p>Thank you for choosing One Step Solution!</p>
-      <p>Regards,<br>Team One Step Solution</p>
-      `,
-      
-      attachments
-    );
-
-    
-    res.status(200).json({
-      success: true,
-      message: "Work completed, photo uploaded, and invoice sent with payment link.",
-      workId: work._id,
-      afterPhoto: afterPhotoUrl,
-      invoice: work.invoice,
-      paymentLink,
-    });
-//     await sendNotification(
-//   technicianId,
-//   "technician",
-//   "Job Completed",
-//   `You successfully completed ${work.serviceType}.`,
-//   "success",
-//   `/technician/work/${work._id}`
-// );
-
-// await sendNotification(
-//   work.client,
-//   "client",
-//   "Job Completed",
-//   `Your job (${work.serviceType}) is completed. Invoice sent via email.`,
-//   "success",
-//   `/client/work/${work._id}`
-// );
-
-
-  } catch (err) {
-    console.error("❌ Work Complete Error:", err);
-    res.status(500).json({ message: "Server error" });
-  }
-};
 
 
 
@@ -567,8 +422,9 @@ exports.updateLocation = async (req, res) => {
       status: { $in: ["approved", "taken", "dispatch", "inprogress"] },
     }).populate("client", "name phone email coordinates serviceType");
 
-    // 🚫 Block updates if no approved work
-    if (!work || work.status !== "approved") {
+    // 🚫 Block updates ONLY if work not found
+    // ❗ Remove the strict check work.status !== "approved"
+    if (!work) {
       return res.status(403).json({
         message: "You cannot update location until the work is approved.",
       });
@@ -585,28 +441,22 @@ exports.updateLocation = async (req, res) => {
       { new: true }
     );
 
-    // 🔹 Auto move to dispatch
-    work.status = "dispatch";
-    await work.save();
-
-    // await sendNotification(
-    //   work.client._id,
-    //   "client",
-    //   "Technician on the Way",
-    //   `${technician.name} is on the way for your ${work.serviceType} service.`,
-    //   "info",
-    //   `/client/work/${work._id}`
-    // );
+    // 🔹 Auto move to dispatch ONLY first time
+    if (work.status === "approved") {
+      work.status = "dispatch";
+      await work.save();
+    }
 
     res.status(200).json({
       message: "Technician location updated and status set to 'dispatch'.",
-      workStatus: "dispatch",
+      workStatus: work.status,
     });
   } catch (err) {
     console.error("Update Location Error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
+
 
 
 
@@ -641,29 +491,27 @@ exports.trackTechnician = async (req, res) => {
     const origin = `${technician.coordinates.lat},${technician.coordinates.lng}`;
     const destination = `${clientLat},${clientLng}`;
 
-    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin}&destinations=${destination}&mode=driving&departure_time=now&key=${googleKey}`;
+    // 🔥 UPDATED: Directions API with multiple routes (alternatives=true)
+    const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&mode=driving&alternatives=true&key=${googleKey}`;
 
     const response = await axios.get(url);
     const data = response.data;
 
-    // Log response if needed (debug)
-    // console.log("Google API response:", JSON.stringify(data, null, 2));
-
-    // Check top-level and element statuses
-    const element = data.rows?.[0]?.elements?.[0];
-    if (data.status !== "OK" || !element || element.status !== "OK") {
-      console.error("Google API Error:", data.status, element?.status);
+    if (data.status !== "OK") {
       return res.status(400).json({
-        message: `Google Maps API error: ${data.status} / ${element?.status}`,
+        message: `Google Directions API error: ${data.status}`,
       });
     }
 
-    // Prefer duration_in_traffic; fallback to duration
-    const etaSeconds =
-      element.duration_in_traffic?.value || element.duration?.value || null;
+    // ⭐ Technician-selected route (default: 0)
+    const selectedRouteIndex = work.selectedRouteIndex ?? 0;
 
-    const distanceText = element.distance?.text || "Unknown";
-    const minutes = etaSeconds ? Math.round(etaSeconds / 60) : "N/A";
+    const route = data.routes[selectedRouteIndex];
+    const leg = route.legs[0];
+
+    const etaSeconds = leg.duration.value;
+    const distanceText = leg.distance.text;
+    const minutes = Math.round(etaSeconds / 60);
 
     res.status(200).json({
       technician: {
@@ -676,8 +524,21 @@ exports.trackTechnician = async (req, res) => {
         name: client.name,
         coordinates: { lat: clientLat, lng: clientLng },
       },
+
+      // ⭐ Same old fields, just updated logic
       eta: `${minutes} minutes`,
       distance: distanceText,
+
+      // ⭐ Extra: polyline if you want to draw route on client map
+      polyline: route.overview_polyline.points,
+
+      // ⭐ Extra: all routes list for route selection (optional)
+      allRoutes: data.routes.map((r, i) => ({
+        index: i,
+        summary: r.summary,
+        distance: r.legs[0].distance.text,
+        duration: r.legs[0].duration.text,
+      })),
     });
   } catch (err) {
     console.error("Track Technician Error:", err.message);
@@ -1003,5 +864,59 @@ exports.getLocation = async (req, res) => {
   } catch (error) {
     console.error("Get Location Error:", error);
     res.status(500).json({ message: "Failed to fetch location" });
+  }
+};
+
+
+exports.getRoutes = async (req, res) => {
+  try {
+    const { techLat, techLng, clientLat, clientLng } = req.body;
+
+    const googleKey = process.env.GOOGLE_MAPS_API_KEY;
+
+    const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${techLat},${techLng}&destination=${clientLat},${clientLng}&mode=driving&alternatives=true&key=${googleKey}`;
+
+    const response = await axios.get(url);
+    const data = response.data;
+
+    if (data.status !== "OK") {
+      return res.status(400).json({ message: "Google Directions API Error" });
+    }
+
+    res.status(200).json({
+      routes: data.routes.map((route, index) => ({
+        index,
+        summary: route.summary,
+        distance: route.legs[0].distance.text,
+        duration: route.legs[0].duration.text,
+        polyline: route.overview_polyline.points,
+      })),
+    });
+
+  } catch (err) {
+    console.error("Get Routes Error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+exports.selectRoute = async (req, res) => {
+  try {
+    const { workId } = req.params;
+    const { selectedRouteIndex } = req.body;
+
+    const work = await Work.findById(workId);
+    if (!work) return res.status(404).json({ message: "Work not found" });
+
+    work.selectedRouteIndex = selectedRouteIndex;
+    await work.save();
+
+    res.status(200).json({
+      message: "Route selected successfully",
+      selectedRouteIndex
+    });
+
+  } catch (err) {
+    console.error("Select Route Error:", err);
+    res.status(500).json({ message: "Server error" });
   }
 };
