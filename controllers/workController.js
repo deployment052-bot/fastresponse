@@ -110,7 +110,7 @@ exports.createWork = async (req, res) => {
     for (const tech of technicians) {
       const inWork = await Work.findOne({
         assignedTechnician: tech._id,
-        status: { $in: ["taken", "approved", "dispatch", "inprogress"] }
+        status: { $in: [ "dispatch", "inprogress"] }
       });
       techniciansWithStatus.push({
         ...tech.toObject(),
