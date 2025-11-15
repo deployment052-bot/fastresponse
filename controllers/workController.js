@@ -104,7 +104,7 @@ exports.createWork = async (req, res) => {
       role: "technician",
       specialization: { $in: specs.map(s => new RegExp(s, "i")) },
       location: { $regex: new RegExp(normalizedLocation, "i") }
-    }).select("name phone email experience specialization location ratings coordinates");
+    }).select("firstName lastName phone email experience specialization location ratings coordinates");
 
     const techniciansWithStatus = [];
     for (const tech of technicians) {
