@@ -13,7 +13,7 @@ exports.getAllWorks = async (req, res) => {
     // 🔹 Sirf us client ke works fetch karo
     const works = await Work.find({ client: clientId })
       .populate("client", "name email phone")
-      .populate("assignedTechnician", "name email phone specialization ratings")
+      .populate("assignedTechnician", "firstName lastName email phone specialization ratings")
       .sort({ createdAt: -1 });
 
     if (!works.length) {
