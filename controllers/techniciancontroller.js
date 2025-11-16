@@ -204,7 +204,7 @@ exports.getTechnicianSummary = async (req, res) => {
     const technicianId = req.user._id;
 
     const works = await Work.find({ technician: technicianId })
-      .populate("client", "name phone email")
+      .populate("client", "fisrtName lastName date phone email location")
       .populate("supervisor", "name")
       .sort({ createdAt: -1 });
 
