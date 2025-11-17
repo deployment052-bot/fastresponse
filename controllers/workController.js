@@ -272,7 +272,7 @@ exports.bookTechnician = async (req, res) => {
       user: userId,
       technician: technicianId,
       serviceType,
-      status: { $in: ["open", "taken", "dispatch", "inprogress"] }
+      status: { $in: ["dispatch", "inprogress"] }
     });
     if (duplicateBooking) return res.status(400).json({
       message: `You already booked technician ${technician.name} for ${serviceType}.`
@@ -281,7 +281,7 @@ exports.bookTechnician = async (req, res) => {
     // Technician conflict
     const conflict = await Work.findOne({
       assignedTechnician: technicianId,
-      status: { $in: ["taken", "dispatch", "inprogress"] }
+      status: { $in: [ "dispatch", "inprogress"] }
     });
     if (conflict) return res.status(400).json({ message: "Technician is already assigned to another work." });
 
