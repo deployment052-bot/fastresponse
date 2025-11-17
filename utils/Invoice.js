@@ -8,43 +8,27 @@ exports.generateBillPDF = async (
   work,
   technician,
   client,
-  items,
   serviceCharge,
   paymentMethod,
   totalAmount,
-  qrBuffer,       // 🆕 NEW → UPI QR buffer from controller
-  upiId           // 🆕 NEW → dynamic UPI ID
+  qrBuffer,
+  upiId
 ) => {
   return new Promise(async (resolve, reject) => {
     try {
-      // --------------------------------------------------
-      //  Ensure invoices folder exists
-      // --------------------------------------------------
       const invoicesFolder = path.join(__dirname, "../invoices");
-      if (!fs.existsSync(invoicesFolder)) {
-        fs.mkdirSync(invoicesFolder);
-      }
+      if (!fs.existsSync(invoicesFolder)) fs.mkdirSync(invoicesFolder);
 
-      const fileName = `bill_${work._id}.pdf`;
-      const filePath = path.join(invoicesFolder, fileName);
+      const filePath = path.join(invoicesFolder, `bill_${work._id}.pdf`);
 
       const doc = new PDFDocument({ margin: 40 });
+      doc.pipe(fs.createWriteStream(filePath));
 
-      const writeStream = fs.createWriteStream(filePath);
-      doc.pipe(writeStream);
-
-      // --------------------------------------------------
       // HEADER
-      // --------------------------------------------------
-      doc.fontSize(22).text("🧾 SERVICE BILL", { align: "center" });
-      doc.moveDown(1.2);
+      doc.fontSize(22).text("SERVICE BILL", { align: "center" }).moveDown();
+      doc.fontSize(11).text(`Bill Date: ${new Date().toLocaleString()}`).moveDown();
 
-      doc.fontSize(11).text(`Bill Date: ${new Date().toLocaleString()}`);
-      doc.moveDown();
-
-      // --------------------------------------------------
-      // CUSTOMER DETAILS
-      // --------------------------------------------------
+      // CLIENT
       doc.fontSize(14).text("Client Details:", { underline: true });
       doc.fontSize(12)
         .text(`Name: ${client.firstName} ${client.lastName}`)
@@ -52,92 +36,50 @@ exports.generateBillPDF = async (
         .text(`Phone: ${client.phone}`)
         .moveDown();
 
-      // --------------------------------------------------
-      // TECHNICIAN DETAILS
-      // --------------------------------------------------
-      doc.fontSize(14).text("Technician:", { underline: true });
+      // TECHNICIAN
+      doc.fontSize(14).text("Technician Details:", { underline: true });
       doc.fontSize(12)
         .text(`Name: ${technician.firstName} ${technician.lastName}`)
         .text(`Phone: ${technician.phone}`)
         .moveDown();
 
-      // --------------------------------------------------
       // WORK DETAILS
-      // --------------------------------------------------
       doc.fontSize(14).text("Work Details:", { underline: true });
       doc.fontSize(12)
         .text(`Work ID: ${work._id}`)
         .text(`Service Type: ${work.serviceType}`)
         .moveDown();
 
-      // --------------------------------------------------
-      // ITEMS TABLE
-      // --------------------------------------------------
-      doc.fontSize(14).text("Items Used:", { underline: true });
-      doc.moveDown(0.5);
-
-      if (items.length === 0) {
-        doc.fontSize(12).text("No material items used.");
-      } else {
-        items.forEach((item, index) => {
-          doc
-            .fontSize(12)
-            .text(
-              `${index + 1}. ${item.name} — Qty: ${item.qty} × ₹${item.price} = ₹${
-                item.price * item.qty
-              }`
-            );
-        });
-      }
+      // BILL AMOUNT (NO ITEMS)
+      doc.fontSize(14).text("Bill Summary:", { underline: true });
+      doc.fontSize(12)
+        .text(`Service Charge: ${serviceCharge}`)
+        .text(`-----------------------------`);
+      doc.fontSize(14).text(`Total Amount: ${totalAmount}`, { underline: true });
 
       doc.moveDown();
 
-      // --------------------------------------------------
-      // BILL AMOUNT SUMMARY
-      // --------------------------------------------------
-      doc.fontSize(12).text(`Subtotal: ₹${items.reduce((a, b) => a + b.qty * b.price, 0)}`);
-      doc.text(`Service Charge: ₹${serviceCharge}`);
-      doc.text(`-----------------------------`);
-      doc.fontSize(14).text(`Total Amount: ₹${totalAmount}`, { underline: true });
+      // PAYMENT
+      doc.fontSize(14).text("Payment Method:", { underline: true }).moveDown(0.5);
 
-      doc.moveDown(1);
-
-      // --------------------------------------------------
-      // PAYMENT SECTION
-      // --------------------------------------------------
-      doc.fontSize(14).text("Payment Method:", { underline: true });
-      doc.moveDown(0.5);
-
-      if (paymentMethod === "cash") {
-        doc.fontSize(12).text("💰 CASH PAYMENT");
-        doc.text("Please pay the technician directly.");
-      } else {
-        doc.fontSize(12).text("📱 UPI PAYMENT");
-
-        doc.text(`UPI ID: ${upiId}`, { underline: false });
-        doc.moveDown(0.3);
+      if (paymentMethod === "upi") {
+        doc.fontSize(12).text(`UPI ID: ${upiId}`);
+        doc.moveDown();
 
         if (qrBuffer) {
-          doc.text("Scan to Pay:", { align: "left" });
-          doc.image(qrBuffer, {
-            fit: [150, 150],
-            align: "left",
-          });
+          doc.text("Scan to Pay:");
+          doc.image(qrBuffer, { fit: [150, 150] });
         }
+      } else {
+        doc.fontSize(12).text("Cash Payment - Pay directly to technician");
       }
 
-      doc.moveDown(1);
-
-      // --------------------------------------------------
-      // FOOTER
-      // --------------------------------------------------
+      doc.moveDown(2);
       doc.fontSize(12).text("Thank you for choosing our service!", { align: "center" });
-      doc.fontSize(9).text("This is a system-generated bill.", { align: "center" });
 
       doc.end();
 
-      writeStream.on("finish", () => resolve({ filePath }));
-      writeStream.on("error", reject);
+      resolve({ filePath });
 
     } catch (err) {
       reject(err);
