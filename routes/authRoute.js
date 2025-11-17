@@ -121,7 +121,7 @@ router.get(
         { expiresIn: "7d" }
       );
 
-      const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+      const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173" || "whimsical-fenglisu-4a7b67.netlify.app";
       return res.redirect(`${frontendUrl}/client?token=${token}`);
     } catch (err) {
       console.error("Facebook Callback Error:", err);
