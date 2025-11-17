@@ -63,7 +63,7 @@ const workSchema = new mongoose.Schema(
 
     beforphoto: { type: String },
 
-    beforphoto: { type: String  },
+
 
 
     afterphoto: { type: String },
