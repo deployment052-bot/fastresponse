@@ -28,7 +28,7 @@ router.post('/work/find-technicians', protect, findMatchingTechnicians);
 router.post('/work/book-technician', protect, bookTechnician);
 
 
-router.post('/work/start', protect,upload.single("beforePhoto"), authorize('technician'), WorkStart);
+router.post('/work/start', protect,upload.single("beforephoto"), authorize('technician'), WorkStart);
 // router.post('/work/complete-1', protect, upload.single("afterphoto"),authorize('technician'),  WorkComplete  );
 
 router.post('/work/complete', protect, authorize('technician'),upload.single("afterphoto"), completeWorkAndGenerateBill  );
