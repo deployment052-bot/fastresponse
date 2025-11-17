@@ -13,9 +13,13 @@ require("./config/passport");
 
 // ✅ Middlewares
 app.use(cors({
-  origin: ["http://localhost:5173","whimsical-fenglisu-4a7b67.netlify.app"], // frontend origin (change if needed)
+  origin: [
+    "http://localhost:5173",
+    "https://whimsical-fenglisu-4a7b67.netlify.app"
+  ],
   credentials: true,
 }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
