@@ -9,7 +9,7 @@ const sendEmail = require("../utils/sendemail");
 
 exports.completeWorkAndGenerateBill = async (req, res) => {
   try {
-    const { workId, items = [], serviceCharge = 0, paymentMethod = "cash" } = req.body;
+    const { workId, serviceCharge = 0, paymentMethod = "cash" } = req.body;
     const technicianId = req.user._id;
 
     const work = await Work.findById(workId).populate("client");
@@ -21,66 +21,61 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
 
     const technician = await User.findById(technicianId);
     const client = work.client;
-    if (!client) return res.status(404).json({ message: "Client not found" });
 
-    const subtotal = items.reduce((sum, i) => sum + i.price * i.qty, 0);
-    const totalAmount = subtotal + Number(serviceCharge || 0);
+    const totalAmount = Number(serviceCharge);
 
-    // 📌 Create Bill
+    // CREATE BILL
     const bill = await Bill.create({
       workId,
       technicianId,
       clientId: client._id,
-      items,
       serviceCharge,
       totalAmount,
       paymentMethod,
       status: "sent",
     });
 
-    // ----------------------------------------------------
-    // 🔹 MANUAL REAL-TIME PAYMENT FLOW
-    // ----------------------------------------------------
-    // No gateway → UPI ID used → technician will confirm manually
-
+    // -------------------- UPI FLOW --------------------
     let upiUri = "";
     let qrBuffer = null;
+    const upiId = process.env.UPI_ID;
 
     if (paymentMethod === "upi") {
-      const upiId = process.env.upi_id;  
-      const name = technician.firstName || "Technician";
+      const name = encodeURIComponent(technician.firstName);
 
-      // 🔹 UPI Link
-      upiUri = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(name)}&am=${totalAmount}&cu=INR&tn=${encodeURIComponent(
-        `Payment for ${work.serviceType || "Service"}`
-      )}`;
+      upiUri = `upi://pay?pa=${upiId}&pn=${name}&am=${totalAmount}&cu=INR&tn=Service Payment`;
 
-      // 🔹 QR Image
-      const upiQR = await QRCode.toDataURL(upiUri);
-      qrBuffer = Buffer.from(upiQR.split(",")[1], "base64");
+      const qrBase64 = await QRCode.toDataURL(upiUri);
+      qrBuffer = Buffer.from(qrBase64.split(",")[1], "base64");
 
-      // 🆕 STORE inside Bill for technician app
       bill.upiUri = upiUri;
-      bill.qrImage = upiQR;
+      bill.qrImage = qrBase64;
       await bill.save();
     }
 
-    // ----------------------------------------------------
-    // 🔸 PDF Bill generation (your original code)
-    // ----------------------------------------------------
-
+    // -------------------- PDF GENERATE --------------------
     const { filePath } = await generateBillPDF(
       work,
       technician,
       client,
-      items,
       serviceCharge,
       paymentMethod,
-      totalAmount
+      totalAmount,
+      qrBuffer,
+      upiId
     );
+
     const pdfBuffer = fs.readFileSync(filePath);
 
-    const attachments = [];
+    // email attachments
+    const attachments = [
+      {
+        content: pdfBuffer.toString("base64"),
+        filename: "bill.pdf",
+        type: "application/pdf",
+        disposition: "attachment",
+      }
+    ];
 
     if (qrBuffer) {
       attachments.push({
@@ -88,59 +83,53 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
         filename: "upi-qr.png",
         type: "image/png",
         disposition: "inline",
-        content_id: "qr_code_cid",
+        content_id: "qr_code",
       });
     }
 
-    attachments.push({
-      content: pdfBuffer.toString("base64"),
-      filename: "bill.pdf",
-      type: "application/pdf",
-      disposition: "attachment",
-    });
-
-    // ----------------------------------------------------
-    // 🔸 Email Body (same as yours)
-    // ----------------------------------------------------
+    // -------------------- EMAIL BODY --------------------
     const emailBody = `
-      <p>Dear ${client.firstName || "Client"},</p>
+      <p>Hello ${client.firstName},</p>
       <p>Your service <b>${work.serviceType}</b> has been completed.</p>
-      <p>Please find your bill attached below.</p>
+      <p><b>Total Amount:</b> ₹${totalAmount}</p>
+
       ${
         paymentMethod === "upi"
-          ? `<p><b>Payment Method:</b> UPI</p>
-             <p>Scan the QR below or <a href="${upiUri}">Click here to pay via UPI</a>.</p>
-             <img src="cid:qr_code_cid" alt="UPI QR" style="width:200px;height:200px;" />`
-          : `<p><b>Payment Method:</b> Cash — please pay the technician directly.</p>`
+          ? `
+            <p><b>Pay Now:</b> <a href="${upiUri}">${upiUri}</a></p>
+            <p>Or Scan QR Code:</p>
+            <img src="cid:qr_code" width="200" />
+          `
+          : "<p><b>Payment Mode:</b> Cash</p>"
       }
-      <p>Thank you for choosing our service.</p>
+
+      <p>Your bill PDF is attached below.</p>
+      <p>Thank you!</p>
     `;
 
-    await sendEmail(client.email, "🧾 Service Bill - Please Complete Payment", emailBody, attachments);
+    await sendEmail(
+      client.email,
+      "Your Bill & Payment Details",
+      emailBody,
+      attachments
+    );
 
-    // ----------------------------------------------------
-    // 🔸 Update Work
-    // ----------------------------------------------------
+    // UPDATE WORK
     work.status = "completed";
     work.completedAt = new Date();
     work.billId = bill._id;
     await work.save();
 
     res.status(200).json({
-      message: "Work completed, bill generated, and emailed successfully.",
+      message: "Work completed & bill emailed to user.",
       bill,
-      upiUri: paymentMethod === "upi" ? upiUri : null,
+      upiUri,
     });
 
-  } catch (error) {
-    console.error("Error completing work:", error);
-    res.status(500).json({
-      message: "Error completing work",
-      error: error.message,
-    });
+  } catch (err) {
+    res.status(500).json({ message: "Error", error: err.message });
   }
 };
-
 
 exports.getTechnicianSummary1 = async (req, res) => {
   try {
