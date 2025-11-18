@@ -476,7 +476,8 @@ exports.trackTechnician = async (req, res) => {
   try {
     const { workId } = req.params;
 
-    // ⭐ FIX 1: Stop server crash when workId = null / undefined / invalid
+    // ✅ FIX 1: Stop server crash when workId = null / undefined / invalid
+    // Check if workId is valid and present
     if (
       !workId ||
       workId === "null" ||
@@ -486,20 +487,25 @@ exports.trackTechnician = async (req, res) => {
       return res.status(400).json({ message: "Invalid or missing workId" });
     }
 
-    // Fetch work
+    // Fetch the work document from the database and populate the assigned technician
     const work = await Work.findById(workId).populate("assignedTechnician");
 
-    if (!work || !work.assignedTechnician) {
+    // ✅ FIX 2: Ensure work and assigned technician exist
+    if (!work) {
+      return res.status(404).json({ message: "Work not found" });
+    }
+    if (!work.assignedTechnician) {
       return res.status(404).json({ message: "Technician not assigned yet" });
     }
 
     const technician = work.assignedTechnician;
     const client = await User.findById(work.client);
 
-    // ⭐ Prefer work coordinates
+    // ✅ FIX 3: Ensure valid coordinates for technician and client
     const clientLat = work.coordinates?.lat || client.coordinates?.lat;
     const clientLng = work.coordinates?.lng || client.coordinates?.lng;
 
+    // If technician or client is missing coordinates, return an error
     if (
       !technician.coordinates?.lat ||
       !technician.coordinates?.lng ||
@@ -511,13 +517,13 @@ exports.trackTechnician = async (req, res) => {
       });
     }
 
+    // Prepare Google Maps API request
     const googleKey = process.env.GOOGLE_MAPS_API_KEY;
-
     const origin = `${technician.coordinates.lat},${technician.coordinates.lng}`;
     const destination = `${clientLat},${clientLng}`;
-
     const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&mode=driving&alternatives=true&key=${googleKey}`;
 
+    // ✅ FIX 4: Call Google Maps API to get directions
     const response = await axios.get(url);
     const data = response.data;
 
@@ -527,12 +533,15 @@ exports.trackTechnician = async (req, res) => {
       });
     }
 
+    // ✅ FIX 5: Handle route selection if available
     const selectedRouteIndex = work.selectedRouteIndex ?? 0;
     const route = data.routes[selectedRouteIndex];
     const leg = route.legs[0];
 
+    // Calculate the ETA (estimated time of arrival) in minutes
     const minutes = Math.round(leg.duration.value / 60);
 
+    // Return the response with all relevant details
     res.status(200).json({
       technician: {
         name: technician.name,
@@ -554,13 +563,22 @@ exports.trackTechnician = async (req, res) => {
         duration: r.legs[0].duration.text,
       })),
     });
-
   } catch (err) {
     console.error("Track Technician Error:", err);
-    res.status(500).json({ message: "Server error" });
+
+    // ✅ FIX 6: More detailed error handling
+    if (err.response) {
+      // This is a response error from Google API
+      res.status(err.response.status).json({ message: err.response.data.error_message });
+    } else if (err.request) {
+      // No response from Google API or database
+      res.status(500).json({ message: "Google API request failed or server error" });
+    } else {
+      // General server error
+      res.status(500).json({ message: "Server error" });
+    }
   }
 };
-
 
 
 
