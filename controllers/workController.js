@@ -13,7 +13,10 @@ const generateToken = (id) => {
   return `REQ-${new Date().getFullYear()}-${String(id).padStart(5, '0')}`;
 };
 
-// Parse client date in DD-MM-YYYY or DD/MM/YYYY format
+
+
+
+// Parse date from DD/MM/YYYY or DD-MM-YYYY to JS Date object
 function parseClientDate(input) {
   if (!input) return null;
   input = input.replace(/\//g, "-");
@@ -26,7 +29,6 @@ function parseClientDate(input) {
 
   const isoDate = `${year}-${month}-${day}`;
   const objectDate = new Date(isoDate);
-
   if (isNaN(objectDate.getTime())) return null;
 
   return {
@@ -36,13 +38,11 @@ function parseClientDate(input) {
   };
 }
 
-// Reverse geocoding
+// Reverse geocoding using OpenStreetMap Nominatim
 async function getAddressFromCoordinates(lat, lng) {
   try {
     const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`;
-    const response = await axios.get(url, {
-      headers: { "User-Agent": "MyApp/1.0" },
-    });
+    const response = await axios.get(url, { headers: { "User-Agent": "MyApp/1.0" } });
     return response.data.display_name || null;
   } catch (err) {
     console.error("Reverse Geocoding Error:", err);
@@ -52,67 +52,57 @@ async function getAddressFromCoordinates(lat, lng) {
 
 exports.createWork = async (req, res) => {
   try {
-    const {
-      serviceType,
-      specialization,
-      description,
-      location,
-      serviceCharge,
-      technicianId,
-      lat,
-      lng,
-      date,
-    } = req.body;
-
+    const { serviceType, specialization, description, serviceCharge, technicianId, lat, lng, date } = req.body;
     const clientId = req.user._id;
 
-    if (!serviceType || !specialization)
+    // Required fields
+    if (!serviceType || !specialization) 
       return res.status(400).json({ message: "Missing required fields" });
+
+    // Frontend coordinates required
+    if (!lat || !lng) 
+      return res.status(400).json({ message: "Coordinates (lat & lng) are required from frontend." });
 
     // Normalize specialization
     const specs = Array.isArray(specialization)
-      ? specialization.map((s) => s.trim().toLowerCase())
-      : specialization.split(",").map((s) => s.trim().toLowerCase());
+      ? specialization.map(s => s.trim().toLowerCase())
+      : specialization.split(",").map(s => s.trim().toLowerCase());
 
     // Fetch client
     const client = await User.findById(clientId);
     if (!client) return res.status(404).json({ message: "Client not found" });
 
-    // Use coordinates from request or fallback to client coordinates
-    const finalLat = parseFloat(lat) || client.coordinates?.lat;
-    const finalLng = parseFloat(lng) || client.coordinates?.lng;
+    // Always use frontend coordinates
+    const finalLat = lat;
+    const finalLng = lng;
 
-    if (!finalLat || !finalLng)
-      return res.status(400).json({ message: "Location coordinates missing." });
-
-    // Get address from coordinates
+    // Reverse geocode to get location
     const autoAddress = await getAddressFromCoordinates(finalLat, finalLng);
-    const finalLocation = autoAddress
-      ? autoAddress.toLowerCase()
-      : location
-      ? location.toLowerCase()
-      : "unknown";
+    const finalLocation = autoAddress ? autoAddress.toLowerCase() : "unknown";
 
-    // Parse date
+    // Parse date if provided
     let parsedDate = null;
     if (date) {
       parsedDate = parseClientDate(date);
-      if (!parsedDate)
-        return res
-          .status(400)
-          .json({ message: "Invalid date format (DD-MM-YYYY)" });
+      if (!parsedDate) return res.status(400).json({ message: "Invalid date format (DD-MM-YYYY)" });
     }
 
-    // Create work
+    // Assign technician if valid
+    let assignedTech = null;
+    if (technicianId && mongoose.Types.ObjectId.isValid(technicianId)) {
+      assignedTech = technicianId;
+    }
+
+    // Create Work
     const work = await Work.create({
       client: clientId,
       serviceType,
       specialization: specs,
       description,
-      serviceCharge,
+      serviceCharge: serviceCharge || 0,
       location: finalLocation,
       coordinates: { lat: finalLat, lng: finalLng },
-      assignedTechnician: technicianId ,
+      assignedTechnician: technicianId,
       status: technicianId ? "taken" : "open",
       token: `REQ-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`,
       date: parsedDate ? parsedDate.objectDate : null,
@@ -121,52 +111,18 @@ exports.createWork = async (req, res) => {
       formattedTime: "",
     });
 
-    // Find nearby technicians
-    const R = 6371; // Earth radius in km
-    const technicians = await User.find({
-      role: "technician",
-      specialization: { $in: specs.map((s) => new RegExp(s, "i")) },
-    });
-
-    const techniciansWithStatus = [];
-    for (const tech of technicians) {
-      if (!tech.coordinates?.lat || !tech.coordinates?.lng) continue;
-
-      // Haversine formula
-      const dLat = ((tech.coordinates.lat - finalLat) * Math.PI) / 180;
-      const dLng = ((tech.coordinates.lng - finalLng) * Math.PI) / 180;
-      const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos((finalLat * Math.PI) / 180) *
-          Math.cos((tech.coordinates.lat * Math.PI) / 180) *
-          Math.sin(dLng / 2) ** 2;
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      const distance = R * c; // km
-
-      if (distance <= 70) {
-        const inWork = await Work.findOne({
-          assignedTechnician: tech._id,
-          status: { $in: ["dispatch", "inprogress"] },
-        });
-
-        techniciansWithStatus.push({
-          ...tech.toObject(),
-          distanceInKm: distance.toFixed(2),
-          employeeStatus: inWork ? "in work" : "available",
-        });
-      }
-    }
-
     res.status(201).json({
       message: "Work request submitted successfully",
       work,
-      matchingTechnicians: techniciansWithStatus,
     });
+
   } catch (err) {
     console.error("Work Creation Error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
+
+
 
 
 
@@ -265,7 +221,6 @@ exports.findMatchingTechnicians = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
-
 
 
 
