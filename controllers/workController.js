@@ -55,12 +55,10 @@ exports.createWork = async (req, res) => {
     const { serviceType, specialization, description, serviceCharge, technicianId, lat, lng, date } = req.body;
     const clientId = req.user._id;
 
-    // Required fields
-    if (!serviceType || !specialization) 
+    if (!serviceType || !specialization)
       return res.status(400).json({ message: "Missing required fields" });
 
-    // Frontend coordinates required
-    if (!lat || !lng) 
+    if (!lat || !lng)
       return res.status(400).json({ message: "Coordinates (lat & lng) are required from frontend." });
 
     // Normalize specialization
@@ -68,11 +66,10 @@ exports.createWork = async (req, res) => {
       ? specialization.map(s => s.trim().toLowerCase())
       : specialization.split(",").map(s => s.trim().toLowerCase());
 
-    // Fetch client
     const client = await User.findById(clientId);
     if (!client) return res.status(404).json({ message: "Client not found" });
 
-    // Always use frontend coordinates
+    // Use only frontend coordinates
     const finalLat = lat;
     const finalLng = lng;
 
@@ -80,7 +77,7 @@ exports.createWork = async (req, res) => {
     const autoAddress = await getAddressFromCoordinates(finalLat, finalLng);
     const finalLocation = autoAddress ? autoAddress.toLowerCase() : "unknown";
 
-    // Parse date if provided
+    // Parse date
     let parsedDate = null;
     if (date) {
       parsedDate = parseClientDate(date);
@@ -102,8 +99,8 @@ exports.createWork = async (req, res) => {
       serviceCharge: serviceCharge || 0,
       location: finalLocation,
       coordinates: { lat: finalLat, lng: finalLng },
-      assignedTechnician: technicianId,
-      status: technicianId ? "taken" : "open",
+      assignedTechnician: assignedTech,
+      status: assignedTech ? "taken" : "open",
       token: `REQ-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`,
       date: parsedDate ? parsedDate.objectDate : null,
       formattedDate: parsedDate ? parsedDate.formatted : null,
@@ -111,9 +108,45 @@ exports.createWork = async (req, res) => {
       formattedTime: "",
     });
 
+    // Find nearby technicians (within 70 km)
+    const R = 6371;
+    const technicians = await User.find({
+      role: "technician",
+      specialization: { $in: specs.map(s => new RegExp(s, "i")) }
+    });
+
+    const techniciansWithStatus = [];
+    for (const tech of technicians) {
+      if (!tech.coordinates?.lat || !tech.coordinates?.lng) continue;
+
+      const dLat = ((tech.coordinates.lat - finalLat) * Math.PI) / 180;
+      const dLng = ((tech.coordinates.lng - finalLng) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((finalLat * Math.PI) / 180) *
+        Math.cos((tech.coordinates.lat * Math.PI) / 180) *
+        Math.sin(dLng / 2) ** 2;
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const distance = R * c;
+
+      if (distance <= 70) {
+        const inWork = await Work.findOne({
+          assignedTechnician: tech._id,
+          status: { $in: ["dispatch", "inprogress"] },
+        });
+
+        techniciansWithStatus.push({
+          ...tech.toObject(),
+          distanceInKm: distance.toFixed(2),
+          employeeStatus: inWork ? "in work" : "available",
+        });
+      }
+    }
+
     res.status(201).json({
       message: "Work request submitted successfully",
       work,
+      matchingTechnicians: techniciansWithStatus,
     });
 
   } catch (err) {
