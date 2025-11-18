@@ -9,17 +9,15 @@ const PDFDocument = require("pdfkit");
 const nodemailer = require("nodemailer");
 const sendemail=require('../utils/sendemail')
 const { uploadToCloudinary } = require("../utils/cloudinaryUpload");
-const { io } = require("../server");
 const generateToken = (id) => {
   return `REQ-${new Date().getFullYear()}-${String(id).padStart(5, '0')}`;
 };
 
+
+// Parse date function (your existing one)
 function parseClientDate(input) {
   if (!input) return null;
-
-  // Replace slashes with dashes
   input = input.replace(/\//g, "-");
-
   const [d, m, y] = input.split("-");
   if (!d || !m || !y) return null;
 
@@ -35,45 +33,47 @@ function parseClientDate(input) {
   return {
     iso: isoDate,
     formatted: `${day}-${month}-${year}`,
-    objectDate
+    objectDate,
   };
+}
+
+// Reverse geocoding
+async function getAddressFromCoordinates(lat, lng) {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`;
+    const response = await axios.get(url, { headers: { "User-Agent": "MyApp/1.0" } });
+    return response.data.display_name || null;
+  } catch (err) {
+    console.error("Reverse Geocoding Error:", err);
+    return null;
+  }
 }
 
 exports.createWork = async (req, res) => {
   try {
-    const { 
-      serviceType, 
-      specialization, 
-      description, 
-      location, 
-      serviceCharge,
-      technicianId, 
-      lat, 
-      lng,
-      date // DD-MM-YYYY or DD/MM/YYYY
-    } = req.body;
-
+    const { serviceType, specialization, description, location, serviceCharge, technicianId, lat, lng, date } = req.body;
     const clientId = req.user._id;
 
-    if (!serviceType || !specialization || !location)
-      return res.status(400).json({ message: "Missing required fields" });
+    if (!serviceType || !specialization) return res.status(400).json({ message: "Missing required fields" });
 
     // Normalize specialization
     const specs = Array.isArray(specialization)
       ? specialization.map(s => s.trim().toLowerCase())
       : specialization.split(",").map(s => s.trim().toLowerCase());
 
-    const normalizedLocation = location.trim().toLowerCase();
-
     // Fetch client
     const client = await User.findById(clientId);
     if (!client) return res.status(404).json({ message: "Client not found" });
 
-    // Coordinates
     const finalLat = lat || client.coordinates?.lat;
     const finalLng = lng || client.coordinates?.lng;
+
     if (!finalLat || !finalLng)
       return res.status(400).json({ message: "Location coordinates missing." });
+
+    // Get address
+    const autoAddress = await getAddressFromCoordinates(finalLat, finalLng);
+    const finalLocation = autoAddress ? autoAddress.toLowerCase() : (location ? location.toLowerCase() : "unknown");
 
     // Parse date
     let parsedDate = null;
@@ -82,14 +82,14 @@ exports.createWork = async (req, res) => {
       if (!parsedDate) return res.status(400).json({ message: "Invalid date format (DD-MM-YYYY)" });
     }
 
-    // Create Work
+    // Create work
     const work = await Work.create({
       client: clientId,
       serviceType,
       specialization: specs,
       description,
       serviceCharge,
-      location: normalizedLocation,
+      location: finalLocation,
       coordinates: { lat: finalLat, lng: finalLng },
       assignedTechnician: technicianId || null,
       status: technicianId ? "taken" : "open",
@@ -97,41 +97,56 @@ exports.createWork = async (req, res) => {
       date: parsedDate ? parsedDate.objectDate : null,
       formattedDate: parsedDate ? parsedDate.formatted : null,
       time: "",
-      formattedTime: ""
+      formattedTime: "",
     });
 
-    // Fetch matching technicians
+    // 🔹 Find nearby technicians manually (without $geoNear)
+    const R = 6371; // Earth radius in km
     const technicians = await User.find({
       role: "technician",
-      specialization: { $in: specs.map(s => new RegExp(s, "i")) },
-      location: { $regex: new RegExp(normalizedLocation, "i") }
-    }).select("firstName lastName phone email experience specialization location ratings coordinates");
+      specialization: { $in: specs.map(s => new RegExp(s, "i")) }
+    });
 
     const techniciansWithStatus = [];
     for (const tech of technicians) {
-      const inWork = await Work.findOne({
-        assignedTechnician: tech._id,
-        status: { $in: [ "dispatch", "inprogress"] }
-      });
-      techniciansWithStatus.push({
-        ...tech.toObject(),
-        employeeStatus: inWork ? "in work" : "available"
-      });
+      if (!tech.coordinates?.lat || !tech.coordinates?.lng) continue;
+
+      // Haversine formula to calculate distance
+      const dLat = ((tech.coordinates.lat - finalLat) * Math.PI) / 180;
+      const dLng = ((tech.coordinates.lng - finalLng) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((finalLat * Math.PI) / 180) *
+        Math.cos((tech.coordinates.lat * Math.PI) / 180) *
+        Math.sin(dLng / 2) ** 2;
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const distance = R * c; // in km
+
+      if (distance <= 70) { // kitni dur ka tech chaiye
+        const inWork = await Work.findOne({
+          assignedTechnician: tech._id,
+          status: { $in: ["dispatch", "inprogress"] },
+        });
+
+        techniciansWithStatus.push({
+          ...tech.toObject(),
+          distanceInKm: distance.toFixed(2),
+          employeeStatus: inWork ? "in work" : "available",
+        });
+      }
     }
 
     res.status(201).json({
-      message: technicianId
-        ? "Work created and assigned to technician"
-        : "Work request submitted successfully",
+      message: "Work request submitted successfully",
       work,
-      matchingTechnicians: techniciansWithStatus
+      matchingTechnicians: techniciansWithStatus,
     });
-
   } catch (err) {
     console.error("Work Creation Error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
+
 
 
 
@@ -273,7 +288,7 @@ exports.bookTechnician = async (req, res) => {
       user: userId,
       technician: technicianId,
       serviceType,
-      status: { $in: ["dispatch", "inprogress"] }
+      status: { $in: ["open", "taken", "dispatch", "inprogress"] }
     });
     if (duplicateBooking) return res.status(400).json({
       message: `You already booked technician ${technician.name} for ${serviceType}.`
@@ -282,7 +297,7 @@ exports.bookTechnician = async (req, res) => {
     // Technician conflict
     const conflict = await Work.findOne({
       assignedTechnician: technicianId,
-      status: { $in: [ "dispatch", "inprogress"] }
+      status: { $in: ["taken", "dispatch", "inprogress"] }
     });
     if (conflict) return res.status(400).json({ message: "Technician is already assigned to another work." });
 
@@ -387,6 +402,7 @@ exports.WorkStart = async (req, res) => {
 //   `/client/work/${work._id}`
 // );
 
+    // ✅ Update related booking if any
     await Booking.findOneAndUpdate(
       { technician: technicianId, user: work.client, status: { $in: ["open", "taken", "dispatch"] } },
       { status: "inprogress" }
@@ -416,7 +432,7 @@ exports.updateLocation = async (req, res) => {
     if (!lat || !lng)
       return res.status(400).json({ message: "Latitude and longitude required" });
 
-   
+    // 🔍 Find active approved work
     const work = await Work.findOne({
       assignedTechnician: technicianId,
       status: { $in: ["approved", "taken", "dispatch", "inprogress"] },
@@ -428,7 +444,7 @@ exports.updateLocation = async (req, res) => {
       });
     }
 
- 
+    // ✅ Proceed with location update
     const technician = await User.findByIdAndUpdate(
       technicianId,
       {
@@ -439,21 +455,24 @@ exports.updateLocation = async (req, res) => {
       { new: true }
     );
 
+    // 🔹 Auto move to dispatch FIRST time
     if (work.status === "approved") {
       work.status = "dispatch";
       await work.save();
     }
 
-    io.emit("locationUpdate", {
-      workId: work._id,
-      technicianId,
-      lat,
-      lng,
-      timestamp: Date.now(),
-    });
+    // ⭐ NEW → emit realtime location using socket.io (global.io)
+    if (global.io) {
+      global.io.emit(`track-${technicianId}`, {
+        lat,
+        lng,
+        time: Date.now(),
+        workId: work._id,
+      });
+    }
 
     res.status(200).json({
-      message: "Technician location updated & broadcasted.",
+      message: "Technician location updated and status set to 'dispatch'.",
       workStatus: work.status,
     });
 
@@ -462,9 +481,6 @@ exports.updateLocation = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
-
-
-
 
 
 exports.trackTechnician = async (req, res) => {
@@ -498,7 +514,6 @@ exports.trackTechnician = async (req, res) => {
     const origin = `${technician.coordinates.lat},${technician.coordinates.lng}`;
     const destination = `${clientLat},${clientLng}`;
 
-    // 🔥 UPDATED: Directions API with multiple routes (alternatives=true)
     const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&mode=driving&alternatives=true&key=${googleKey}`;
 
     const response = await axios.get(url);
@@ -510,7 +525,7 @@ exports.trackTechnician = async (req, res) => {
       });
     }
 
-    // ⭐ Technician-selected route (default: 0)
+    // ⭐ NEW: selected route index
     const selectedRouteIndex = work.selectedRouteIndex ?? 0;
 
     const route = data.routes[selectedRouteIndex];
@@ -532,14 +547,13 @@ exports.trackTechnician = async (req, res) => {
         coordinates: { lat: clientLat, lng: clientLng },
       },
 
-      // ⭐ Same old fields, just updated logic
       eta: `${minutes} minutes`,
       distance: distanceText,
 
-      // ⭐ Extra: polyline if you want to draw route on client map
+      // ⭐ NEW → return polyline for map drawing
       polyline: route.overview_polyline.points,
 
-      // ⭐ Extra: all routes list for route selection (optional)
+      // ⭐ NEW → return ALL alternate routes
       allRoutes: data.routes.map((r, i) => ({
         index: i,
         summary: r.summary,
@@ -547,11 +561,14 @@ exports.trackTechnician = async (req, res) => {
         duration: r.legs[0].duration.text,
       })),
     });
+
   } catch (err) {
     console.error("Track Technician Error:", err.message);
     res.status(500).json({ message: "Server error" });
   }
 };
+
+
 
 exports.getClientWorkStatus = async (req, res) => {
   try {
@@ -714,6 +731,9 @@ exports.reportWorkIssue = async (req, res) => {
   }
 };
  
+
+
+
 exports.getAdminNotifications = async (req, res) => {
   
   try {
