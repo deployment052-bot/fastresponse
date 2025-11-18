@@ -561,20 +561,25 @@ exports.updateLocation = async (req, res) => {
     if (!lat || !lng)
       return res.status(400).json({ message: "Latitude and longitude required" });
 
-    // 🔍 Find active approved work
+    // 🔍 Find work assigned to technician
     const work = await Work.findOne({
       assignedTechnician: technicianId,
-      status: { $in: ["approved", "taken", "dispatch", "inprogress"] },
+      status: { $in: ["approved", "dispatch", "inprogress"] },
     }).populate("client", "name phone email coordinates serviceType");
 
-    // 🚫 Block updates if no approved work
-    if (!work || work.status !== "approved") {
+    if (!work) {
       return res.status(403).json({
-        message: "You cannot update location until the work is approved.",
+        message: "No active approved work found for this technician.",
       });
     }
 
-    // ✅ Proceed with location update
+    // ⛔ If work is approved → first time location update allowed
+    if (work.status === "approved") {
+      work.status = "dispatch";
+      await work.save();
+    }
+
+    // ✅ Update technician live location
     const technician = await User.findByIdAndUpdate(
       technicianId,
       {
@@ -585,28 +590,26 @@ exports.updateLocation = async (req, res) => {
       { new: true }
     );
 
-    // 🔹 Auto move to dispatch
-    work.status = "dispatch";
-    await work.save();
-
-    // await sendNotification(
-    //   work.client._id,
-    //   "client",
-    //   "Technician on the Way",
-    //   `${technician.name} is on the way for your ${work.serviceType} service.`,
-    //   "info",
-    //   `/client/work/${work._id}`
-    // );
+    // 🌐 SOCKET.IO BROADCAST
+    req.io.to(work._id.toString()).emit("locationUpdate", {
+      technicianId,
+      lat,
+      lng,
+      status: work.status,
+      updatedAt: new Date(),
+    });
 
     res.status(200).json({
-      message: "Technician location updated and status set to 'dispatch'.",
-      workStatus: "dispatch",
+      message: "Location updated.",
+      workStatus: work.status,
     });
+
   } catch (err) {
     console.error("Update Location Error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
+
 
 
 
@@ -634,19 +637,21 @@ exports.trackTechnician = async (req, res) => {
     const origin = `${technician.coordinates.lat},${technician.coordinates.lng}`;
     const destination = `${clientLat},${clientLng}`;
 
-    // --------- DISTANCE MATRIX (ETA + Distance) ---------
+    // 1️⃣ DISTANCE MATRIX API
     const dmUrl = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin}&destinations=${destination}&mode=driving&departure_time=now&key=${googleKey}`;
     const dmRes = await axios.get(dmUrl);
     const dm = dmRes.data.rows[0].elements[0];
-
     const etaSec = dm.duration_in_traffic?.value || dm.duration?.value || null;
     const etaMin = etaSec ? Math.round(etaSec / 60) : "N/A";
 
-    // --------- DIRECTIONS API (ROUTE POLYLINE) ---------
+    // 2️⃣ DIRECTIONS API → ROUTE LINE
     const dirUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&mode=driving&key=${googleKey}`;
     const dirRes = await axios.get(dirUrl);
 
     const route = dirRes.data.routes[0];
+
+    // 3️⃣ TURN-BY-TURN MAP APP URL
+    const mapAppUrl = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
 
     res.status(200).json({
       technician: {
@@ -661,89 +666,16 @@ exports.trackTechnician = async (req, res) => {
       },
       eta: `${etaMin} minutes`,
       distance: dm.distance?.text || "Unknown",
-      routePolyline: route.overview_polyline.points, // ← OLA-UBER route line
+      routePolyline: route.overview_polyline.points,
+      navigateUrl: mapAppUrl, // ← For Google Maps Navigation
     });
+
   } catch (err) {
     console.error("Track Technician Error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
 
-exports.getClientWorkStatus = async (req, res) => {
-  try {
-    const { workId } = req.params;
-    const clientId = req.user._id;
-
-    const work = await Work.findById(workId)
-      .populate("assignedTechnician", "name phone email technicianStatus coordinates lastLocationUpdate")
-      .populate("client", "name phone email coordinates");
-
-    if (!work) {
-      return res.status(404).json({ message: "Work not found" });
-    }
-
-    if (String(work.client._id) !== String(clientId)) {
-      return res.status(403).json({ message: "Not authorized to view this work" });
-    }
-
-    // Prepare technician data
-    const technician = work.assignedTechnician;
-    let eta = "ETA not available";
-
-    // 🔹 Calculate ETA if both coordinates exist
-    if (technician?.coordinates?.lat && technician?.coordinates?.lng && work.coordinates?.lat && work.coordinates?.lng) {
-      try {
-        const orsKey = process.env.ORS_KEY;
-        const url = `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${orsKey}&start=${technician.coordinates.lng},${technician.coordinates.lat}&end=${work.coordinates.lng},${work.coordinates.lat}`;
-        const response = await axios.get(url);
-        const seconds = response.data.features[0].properties.summary.duration;
-        const minutes = Math.round(seconds / 60);
-        eta = `${minutes} minutes`;
-      } catch (err) {
-        console.log("ETA calc failed:", err.message);
-      }
-    }
-
-    // 🔹 Prepare response object
-    const workStatus = {
-      workId: work._id,
-      token: work.token,
-      serviceType: work.serviceType,
-      specialization: work.specialization,
-      serviceCharge:work.serviceCharge,
-      description: work.description,
-      location: work.location,
-      status: work.status,
-      createdAt: work.createdAt,
-      startedAt: work.startedAt,
-      completedAt: work.completedAt,
-      client: {
-        name: work.client.name,
-        phone: work.client.phone,
-        email: work.client.email,
-      },
-      technician: technician
-        ? {
-            name: technician.name,
-            phone: technician.phone,
-            email: technician.email,
-            status: technician.technicianStatus,
-            coordinates: technician.coordinates,
-            lastUpdate: technician.lastLocationUpdate,
-          }
-        : null,
-      eta,
-    };
-
-    res.status(200).json({
-      message: "Work status fetched successfully",
-      workStatus,
-    });
-  } catch (err) {
-    console.error("Client Work Status Error:", err);
-    res.status(500).json({ message: "Server error" });
-  }
-};
 
 exports.reportWorkIssue = async (req, res) => {
   try {
