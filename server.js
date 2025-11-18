@@ -3,15 +3,42 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const passport = require("passport");
-const session = require("express-session"); //  Needed for Google OAuth sessions
+const session = require("express-session");
+const http = require("http");
+const { Server } = require("socket.io");
 
 dotenv.config();
 const app = express();
 
-// ✅ Passport config (Google login)
+
+const server = http.createServer(app);
+
+
+const io = new Server(server, {
+  cors: {
+    origin: [
+      "http://localhost:5173",
+      "https://whimsical-fenglisu-4a7b67.netlify.app"
+    ],
+    credentials: true,
+  }
+});
+
+
+module.exports.io = io;
+
+io.on("connection", (socket) => {
+  console.log(" Socket connected:", socket.id);
+
+  socket.on("disconnect", () => {
+    console.log("Socket disconnected:", socket.id);
+  });
+});
+
+
 require("./config/passport");
 
-// ✅ Middlewares
+
 app.use(cors({
   origin: [
     "http://localhost:5173",
@@ -23,7 +50,6 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ Session Middleware (required by Passport)
 app.use(
   session({
     secret: process.env.SESSION_SECRET || "supersecretkey",
@@ -32,36 +58,33 @@ app.use(
   })
 );
 
-// ✅ Initialize Passport
+
 app.use(passport.initialize());
 app.use(passport.session());
 
-// ✅ Routes
-app.use('/auth', require('./routes/authRoute')); // 🔹 Google + normal auth routes
+
+app.use('/auth', require('./routes/authRoute'));
 app.use('/api', require('./routes/work'));
 app.use('/api', require('./routes/admin'));
-app.use('/otp',require('./routes/otpRoutes'))
-app.use('/forget',require('./routes/forgotpassword'))
-app.use('/service',require('./routes/service'))
-app.use('/technicaian',require('./routes/technicianRoutes'))
+app.use('/otp', require('./routes/otpRoutes'));
+app.use('/forget', require('./routes/forgotpassword'));
+app.use('/service', require('./routes/service'));
+app.use('/technicaian', require('./routes/technicianRoutes'));
 
-
-// ✅ MongoDB Connection (unchanged)
 mongoose.connect(process.env.MONGO_URL)
-  .then(() => console.log('✅ MongoDB connected'))
+  .then(() => console.log(' MongoDB connected'))
   .catch(err => console.log('❌ MongoDB connection error:', err));
 
-// ✅ Health check route
+
 app.get('/', (req, res) => {
-  res.send('🚀 Server running fine with Google OAuth enabled!');
+  res.send(' Server running fine with Google OAuth & Socket.IO!');
 });
 
-// ✅ Global error handler
 app.use((err, req, res, next) => {
-  console.error('❌ Error:', err.stack);
+  console.error(' Error:', err.stack);
   res.status(500).json({ message: 'Something went wrong!', error: err.message });
 });
 
-// ✅ Start Server
+
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(` Server running with Socket.IO on port ${PORT}`));
