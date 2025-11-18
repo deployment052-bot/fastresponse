@@ -9,6 +9,7 @@ const PDFDocument = require("pdfkit");
 const nodemailer = require("nodemailer");
 const sendemail=require('../utils/sendemail')
 const { uploadToCloudinary } = require("../utils/cloudinaryUpload");
+const { io } = require("../server");
 const generateToken = (id) => {
   return `REQ-${new Date().getFullYear()}-${String(id).padStart(5, '0')}`;
 };
@@ -386,7 +387,6 @@ exports.WorkStart = async (req, res) => {
 //   `/client/work/${work._id}`
 // );
 
-    // ✅ Update related booking if any
     await Booking.findOneAndUpdate(
       { technician: technicianId, user: work.client, status: { $in: ["open", "taken", "dispatch"] } },
       { status: "inprogress" }
@@ -416,21 +416,19 @@ exports.updateLocation = async (req, res) => {
     if (!lat || !lng)
       return res.status(400).json({ message: "Latitude and longitude required" });
 
-    // 🔍 Find active approved work
+   
     const work = await Work.findOne({
       assignedTechnician: technicianId,
       status: { $in: ["approved", "taken", "dispatch", "inprogress"] },
     }).populate("client", "name phone email coordinates serviceType");
 
-    // 🚫 Block updates ONLY if work not found
-    // ❗ Remove the strict check work.status !== "approved"
     if (!work) {
       return res.status(403).json({
         message: "You cannot update location until the work is approved.",
       });
     }
 
-    // ✅ Proceed with location update
+ 
     const technician = await User.findByIdAndUpdate(
       technicianId,
       {
@@ -441,21 +439,30 @@ exports.updateLocation = async (req, res) => {
       { new: true }
     );
 
-    // 🔹 Auto move to dispatch ONLY first time
     if (work.status === "approved") {
       work.status = "dispatch";
       await work.save();
     }
 
+    io.emit("locationUpdate", {
+      workId: work._id,
+      technicianId,
+      lat,
+      lng,
+      timestamp: Date.now(),
+    });
+
     res.status(200).json({
-      message: "Technician location updated and status set to 'dispatch'.",
+      message: "Technician location updated & broadcasted.",
       workStatus: work.status,
     });
+
   } catch (err) {
     console.error("Update Location Error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
+
 
 
 
