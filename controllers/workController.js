@@ -13,10 +13,7 @@ const generateToken = (id) => {
   return `REQ-${new Date().getFullYear()}-${String(id).padStart(5, '0')}`;
 };
 
-
-
-
-// Parse date from DD/MM/YYYY or DD-MM-YYYY to JS Date object
+// Parse client date in DD-MM-YYYY or DD/MM/YYYY format
 function parseClientDate(input) {
   if (!input) return null;
   input = input.replace(/\//g, "-");
@@ -39,11 +36,13 @@ function parseClientDate(input) {
   };
 }
 
-// Reverse geocoding using OpenStreetMap Nominatim
+// Reverse geocoding
 async function getAddressFromCoordinates(lat, lng) {
   try {
     const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`;
-    const response = await axios.get(url, { headers: { "User-Agent": "MyApp/1.0" } });
+    const response = await axios.get(url, {
+      headers: { "User-Agent": "MyApp/1.0" },
+    });
     return response.data.display_name || null;
   } catch (err) {
     console.error("Reverse Geocoding Error:", err);
@@ -53,25 +52,35 @@ async function getAddressFromCoordinates(lat, lng) {
 
 exports.createWork = async (req, res) => {
   try {
-    const { serviceType, specialization, description, location, serviceCharge, technicianId, lat, lng, date } = req.body;
+    const {
+      serviceType,
+      specialization,
+      description,
+      location,
+      serviceCharge,
+      technicianId,
+      lat,
+      lng,
+      date,
+    } = req.body;
+
     const clientId = req.user._id;
 
-    // Required fields
-    if (!serviceType || !specialization) 
+    if (!serviceType || !specialization)
       return res.status(400).json({ message: "Missing required fields" });
 
     // Normalize specialization
     const specs = Array.isArray(specialization)
-      ? specialization.map(s => s.trim().toLowerCase())
-      : specialization.split(",").map(s => s.trim().toLowerCase());
+      ? specialization.map((s) => s.trim().toLowerCase())
+      : specialization.split(",").map((s) => s.trim().toLowerCase());
 
     // Fetch client
     const client = await User.findById(clientId);
     if (!client) return res.status(404).json({ message: "Client not found" });
 
-    // Determine coordinates
-    const finalLat = lat || client.coordinates?.lat;
-    const finalLng = lng || client.coordinates?.lng;
+    // Use coordinates from request or fallback to client coordinates
+    const finalLat = parseFloat(lat) || client.coordinates?.lat;
+    const finalLng = parseFloat(lng) || client.coordinates?.lng;
 
     if (!finalLat || !finalLng)
       return res.status(400).json({ message: "Location coordinates missing." });
@@ -80,50 +89,48 @@ exports.createWork = async (req, res) => {
     const autoAddress = await getAddressFromCoordinates(finalLat, finalLng);
     const finalLocation = autoAddress
       ? autoAddress.toLowerCase()
-      : (location ? location.toLowerCase() : "unknown");
+      : location
+      ? location.toLowerCase()
+      : "unknown";
 
     // Parse date
     let parsedDate = null;
     if (date) {
       parsedDate = parseClientDate(date);
-      if (!parsedDate) return res.status(400).json({ message: "Invalid date format (DD-MM-YYYY)" });
+      if (!parsedDate)
+        return res
+          .status(400)
+          .json({ message: "Invalid date format (DD-MM-YYYY)" });
     }
 
-    // Create work document
- let assignedTech = null;
+    // Create work
+    const work = await Work.create({
+      client: clientId,
+      serviceType,
+      specialization: specs,
+      description,
+      serviceCharge,
+      location: finalLocation,
+      coordinates: { lat: finalLat, lng: finalLng },
+      assignedTechnician: technicianId ,
+      status: technicianId ? "taken" : "open",
+      token: `REQ-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`,
+      date: parsedDate ? parsedDate.objectDate : null,
+      formattedDate: parsedDate ? parsedDate.formatted : null,
+      time: "",
+      formattedTime: "",
+    });
 
-if (technicianId && mongoose.Types.ObjectId.isValid(technicianId)) {
-  assignedTech = technicianId;
-}
-
-const work = await Work.create({
-  client: clientId,
-  serviceType,
-  specialization: specs,
-  description,
-  serviceCharge: serviceCharge || 0,
-  location: finalLocation,
-  coordinates: { lat: finalLat, lng: finalLng },
-  assignedTechnician: assignedTech,
-  status: assignedTech ? "taken" : "open",
-  token: `REQ-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`,
-  date: parsedDate ? parsedDate.objectDate : null,
-  formattedDate: parsedDate ? parsedDate.formatted : null,
-  time: "",
-  formattedTime: "",
-});
-
-    // Find nearby technicians manually (without $geoNear)
+    // Find nearby technicians
     const R = 6371; // Earth radius in km
     const technicians = await User.find({
       role: "technician",
-      specialization: { $in: specs.map(s => new RegExp(s, "i")) }
+      specialization: { $in: specs.map((s) => new RegExp(s, "i")) },
     });
 
     const techniciansWithStatus = [];
     for (const tech of technicians) {
-      if (!tech._id) continue; // skip invalid tech
-      if (!tech.coordinates?.lat || !tech.coordinates?.lng) continue; // skip if no coordinates
+      if (!tech.coordinates?.lat || !tech.coordinates?.lng) continue;
 
       // Haversine formula
       const dLat = ((tech.coordinates.lat - finalLat) * Math.PI) / 180;
@@ -131,13 +138,12 @@ const work = await Work.create({
       const a =
         Math.sin(dLat / 2) ** 2 +
         Math.cos((finalLat * Math.PI) / 180) *
-        Math.cos((tech.coordinates.lat * Math.PI) / 180) *
-        Math.sin(dLng / 2) ** 2;
+          Math.cos((tech.coordinates.lat * Math.PI) / 180) *
+          Math.sin(dLng / 2) ** 2;
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      const distance = R * c;
+      const distance = R * c; // km
 
       if (distance <= 70) {
-        // Check if technician is already assigned
         const inWork = await Work.findOne({
           assignedTechnician: tech._id,
           status: { $in: ["dispatch", "inprogress"] },
@@ -161,7 +167,6 @@ const work = await Work.create({
     res.status(500).json({ message: "Server error" });
   }
 };
-
 
 
 
