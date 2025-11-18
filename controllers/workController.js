@@ -276,7 +276,7 @@ exports.bookTechnician = async (req, res) => {
       user: userId,
       technician: technicianId,
       serviceType,
-      status: { $in: ["open", "taken", "dispatch", "inprogress"] }
+      status: { $in: [ "dispatch", "inprogress"] }
     });
     if (duplicateBooking) return res.status(400).json({
       message: `You already booked technician ${technician.firstName} for ${serviceType}.`
@@ -475,6 +475,18 @@ exports.updateLocation = async (req, res) => {
 exports.trackTechnician = async (req, res) => {
   try {
     const { workId } = req.params;
+
+    // ⭐ FIX 1: Stop server crash when workId = null / undefined / invalid
+    if (
+      !workId ||
+      workId === "null" ||
+      workId === "undefined" ||
+      !mongoose.Types.ObjectId.isValid(workId)
+    ) {
+      return res.status(400).json({ message: "Invalid or missing workId" });
+    }
+
+    // Fetch work
     const work = await Work.findById(workId).populate("assignedTechnician");
 
     if (!work || !work.assignedTechnician) {
@@ -484,7 +496,7 @@ exports.trackTechnician = async (req, res) => {
     const technician = work.assignedTechnician;
     const client = await User.findById(work.client);
 
-    // Prefer work coordinates, else fallback to client's saved coordinates
+    // ⭐ Prefer work coordinates
     const clientLat = work.coordinates?.lat || client.coordinates?.lat;
     const clientLng = work.coordinates?.lng || client.coordinates?.lng;
 
@@ -500,6 +512,7 @@ exports.trackTechnician = async (req, res) => {
     }
 
     const googleKey = process.env.GOOGLE_MAPS_API_KEY;
+
     const origin = `${technician.coordinates.lat},${technician.coordinates.lng}`;
     const destination = `${clientLat},${clientLng}`;
 
@@ -514,15 +527,11 @@ exports.trackTechnician = async (req, res) => {
       });
     }
 
-    // ⭐ NEW: selected route index
     const selectedRouteIndex = work.selectedRouteIndex ?? 0;
-
     const route = data.routes[selectedRouteIndex];
     const leg = route.legs[0];
 
-    const etaSeconds = leg.duration.value;
-    const distanceText = leg.distance.text;
-    const minutes = Math.round(etaSeconds / 60);
+    const minutes = Math.round(leg.duration.value / 60);
 
     res.status(200).json({
       technician: {
@@ -535,14 +544,9 @@ exports.trackTechnician = async (req, res) => {
         name: client.name,
         coordinates: { lat: clientLat, lng: clientLng },
       },
-
       eta: `${minutes} minutes`,
-      distance: distanceText,
-
-      // ⭐ NEW → return polyline for map drawing
+      distance: leg.distance.text,
       polyline: route.overview_polyline.points,
-
-      // ⭐ NEW → return ALL alternate routes
       allRoutes: data.routes.map((r, i) => ({
         index: i,
         summary: r.summary,
@@ -552,10 +556,11 @@ exports.trackTechnician = async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Track Technician Error:", err.message);
+    console.error("Track Technician Error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
+
 
 
 
