@@ -178,8 +178,17 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
 
 exports.getTechnicianSummary1 = async (req, res) => {
   try {
-   
     const technicianId = req.user._id;
+
+   
+    const totalWorkCount = await Work.countDocuments({
+      assignedTechnician: technicianId,
+    });
+
+    const activeCount = await Work.countDocuments({
+      assignedTechnician: technicianId,
+      status: { $in: ["dispatch", "inprogress"] },
+    });
 
   
     const completedCount = await Work.countDocuments({
@@ -187,21 +196,13 @@ exports.getTechnicianSummary1 = async (req, res) => {
       status: "completed",
     });
 
-    const inProgressCount = await Work.countDocuments({
+ 
+    const rejectedCount = await Work.countDocuments({
       assignedTechnician: technicianId,
-      status: { $in: ["inprogress", "confirm"] },
+      status: "rejected",
     });
 
-    const upcomingCount = await Work.countDocuments({
-      assignedTechnician: technicianId,
-      status: { $in: ["approved", "dispatch", "taken"] },
-    });
-
-    const onHoldCount = await Work.countDocuments({
-      assignedTechnician: technicianId,
-      status: { $in: ["onhold_parts", "rescheduled", "escalated"] },
-    });
-
+   
     const completedWorks = await Work.find({
       assignedTechnician: technicianId,
       status: "completed",
@@ -213,17 +214,18 @@ exports.getTechnicianSummary1 = async (req, res) => {
       return sum + invoiceTotal + serviceCharge;
     }, 0);
 
-
+ 
     res.status(200).json({
       technicianId,
       summary: {
-        completed: completedCount,
-        inProgress: inProgressCount,
-        upcoming: upcomingCount,
-        onHold: onHoldCount,
+        totalWorkCount,
+        activeCount,
+        completedCount,
+        rejectedCount,
         totalEarnings,
       },
     });
+
   } catch (error) {
     console.error("Error fetching technician summary:", error);
     res.status(500).json({
