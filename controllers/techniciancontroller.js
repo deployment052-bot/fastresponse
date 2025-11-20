@@ -76,7 +76,7 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
 
     // ----------- UPI PAYMENT HANDLING -----------
     if (paymentMethod === "upi") {
-      const finalUpi = upiId || process.env.UPI_ID;
+      const finalUpi = upiId || process.env.upi_id;
       if (!finalUpi) return res.status(400).json({ message: "UPI ID is required for UPI payment" });
 
       const name = encodeURIComponent(req.user.firstName || "Technician");
@@ -114,7 +114,7 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
       paymentMethod,
       totalAmount,
       qrBuffer,
-      upiId || process.env.UPI_ID,
+      upiId || process.env.upi_id,
       filePath // pass final path to util
     );
 
