@@ -1,21 +1,28 @@
+// controllers/technicianController.js (or wherever)
 const fs = require("fs");
-const { uploadToCloudinary } = require("../utils/cloudinaryUpload"); 
+const path = require("path");
 const QRCode = require("qrcode");
+const { uploadToCloudinary } = require("../utils/cloudinaryUpload"); // adjust path
+const { generateBillPDF } = require("../utils/Invoice"); // adjust path
+const sendEmail = require("../utils/sendemail"); // adjust path
 const Work = require("../model/work");
 const User = require("../model/user");
 const Bill = require("../model/Bill");
-const { generateBillPDF } = require("../utils/Invoice");
 
-const sendEmail = require("../utils/sendemail");
+const projectRoot = process.cwd();
+const invoicesFolder = path.join(projectRoot, "invoices");
+
+// ensure invoices folder exists
+if (!fs.existsSync(invoicesFolder)) {
+  fs.mkdirSync(invoicesFolder, { recursive: true });
+}
 
 exports.completeWorkAndGenerateBill = async (req, res) => {
   try {
-    const { workId, serviceCharge = 0, paymentMethod = "cash", upiId: bodyUpiId } = req.body;
+    const { workId, serviceCharge = 0, paymentMethod = "upi", upiId } = req.body;
     const technicianId = req.user._id;
 
-   
-    if (!workId) return res.status(400).json({ message: "Work ID is required" });
-
+    // Validate work
     const work = await Work.findById(workId).populate("client");
     if (!work) return res.status(404).json({ message: "Work not found" });
 
@@ -23,186 +30,152 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
       return res.status(403).json({ message: "You are not assigned to this work" });
     }
 
-    if (!req.file) {
-      return res.status(400).json({ message: "After photo (field name 'afterphoto') is required" });
-    }
+    // After-photo required
+    if (!req.file) return res.status(400).json({ message: "After photo is required" });
 
-    const tempFilePath = req.file.path; 
-    let finalPhotoValue = null; 
-    let cloudPublicId = null;
+    // Save photo: try Cloudinary then fallback to base64
+    let finalPhotoUrl = null;
+    const localPath = req.file.path;
 
-    
     try {
-      const uploadRes = await uploadToCloudinary(tempFilePath, "after_photos");
-      finalPhotoValue = uploadRes.secure_url;
-      cloudPublicId = uploadRes.public_id || null;
+      const uploaded = await uploadToCloudinary(localPath, "after_photos");
+      finalPhotoUrl = uploaded.secure_url;
     } catch (cloudErr) {
-      console.warn("Cloudinary upload failed — falling back to base64. Error:", cloudErr.message || cloudErr);
-      
-      const buffer = fs.readFileSync(tempFilePath);
-      const mime = req.file.mimetype || "image/jpeg";
-      const base64 = `data:${mime};base64,${buffer.toString("base64")}`;
-      finalPhotoValue = base64;
+      console.error("Cloudinary upload failed, fallback:", cloudErr.message);
+
+      try {
+        const buf = fs.readFileSync(localPath);
+        finalPhotoUrl = `data:${req.file.mimetype};base64,${buf.toString("base64")}`;
+      } catch (fsErr) {
+        return res.status(500).json({ message: "Failed to store after photo" });
+      }
     } finally {
-      
-      try {
-        if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-      } catch (e) {
-        console.warn("Failed to remove temp file:", e.message || e);
-      }
+      try { if (fs.existsSync(localPath)) fs.unlinkSync(localPath); } catch (e) {}
     }
 
-    
-    work.afterphoto = finalPhotoValue;
+    // Save photo to work
+    work.afterphoto = finalPhotoUrl;
 
-    
+    // PAYMENT calculations
     const totalAmount = Number(serviceCharge) || 0;
-    let upiUri = null;
-    let qrDataUrl = null; 
-    const upiToUse = bodyUpiId && bodyUpiId.trim() ? bodyUpiId.trim() : (process.env.UPI_ID || "").trim();
 
-    if (paymentMethod === "upi") {
-      if (!upiToUse) {
-        return res.status(400).json({ message: "UPI ID is required for UPI payment" });
-      }
-
-      const technician = await User.findById(technicianId);
-      const payeeName = technician ? encodeURIComponent(technician.firstName || technician.name || "Technician") : "Technician";
-
-      upiUri = `upi://pay?pa=${encodeURIComponent(upiToUse)}&pn=${payeeName}&am=${encodeURIComponent(String(totalAmount))}&cu=INR&tn=${encodeURIComponent("Service Payment")}`;
-
-     
-      try {
-        qrDataUrl = await QRCode.toDataURL(upiUri);
-      } catch (qrErr) {
-        console.warn("QR generation failed:", qrErr.message || qrErr);
-        qrDataUrl = null;
-      }
-    }
-
-   
+    // Prepare bill data
     const billData = {
       workId: work._id,
-      technician: technicianId,
-      client: work.client._id,
+      technicianId,
+      clientId: work.client._id,
       serviceCharge: totalAmount,
       totalAmount,
       paymentMethod,
-      status: "pending",
+      status: "sent",
     };
 
-    if (upiUri) billData.upiUri = upiUri;
-    if (qrDataUrl) billData.qrImage = qrDataUrl; 
+    let qrBuffer = null;
+    let clickableUPI = null;
+    let upiUri = null;
 
+    // ----------- UPI PAYMENT HANDLING -----------
+    if (paymentMethod === "upi") {
+      const finalUpi = upiId || process.env.UPI_ID;
+      if (!finalUpi) return res.status(400).json({ message: "UPI ID is required for UPI payment" });
+
+      const name = encodeURIComponent(req.user.firstName || "Technician");
+      upiUri = `upi://pay?pa=${finalUpi}&pn=${name}&am=${totalAmount}&cu=INR&tn=Service%20Payment`;
+
+      clickableUPI = `https://upi.me/pay?pa=${finalUpi}&pn=${name}&am=${totalAmount}&cu=INR&tn=Service%20Payment`;
+
+      const qrDataUrl = await QRCode.toDataURL(upiUri);
+      qrBuffer = Buffer.from(qrDataUrl.split(",")[1], "base64");
+
+      billData.upiUri = upiUri;
+      billData.clickableUPI = clickableUPI;
+      billData.qrImage = qrDataUrl;
+    }
+
+    // Save bill in DB
     const bill = await Bill.create(billData);
 
-   
-    let pdfFilePath = null;
-    try {
-      const pdfResult = await generateBillPDF({
-        work,
-        technicianId,
-        client: work.client,
-        serviceCharge: totalAmount,
-        paymentMethod,
-        totalAmount,
-        qrDataUrl, 
-        upiId: upiToUse,
-        bill, 
+    // ----------- PDF GENERATION (FIXED PATH) -----------
+    const filePath = path.join(invoicesFolder, `bill_${work._id}.pdf`);
+
+    // delete previous bill if exists
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    const technician = await User.findById(technicianId);
+    const client = work.client;
+
+    await generateBillPDF(
+      work,
+      technician,
+      client,
+      totalAmount,
+      paymentMethod,
+      totalAmount,
+      qrBuffer,
+      upiId || process.env.UPI_ID,
+      filePath // pass final path to util
+    );
+
+    // ----------- EMAIL ATTACHMENTS -----------
+    const pdfBuffer = fs.readFileSync(filePath);
+
+    const attachments = [
+      {
+        content: pdfBuffer.toString("base64"),
+        filename: `bill_${work._id}.pdf`,
+        type: "application/pdf",
+        disposition: "attachment",
+      },
+    ];
+
+    if (qrBuffer) {
+      attachments.push({
+        content: qrBuffer.toString("base64"),
+        filename: "upi-qr.png",
+        type: "image/png",
+        disposition: "inline",
+        content_id: "qr_code",
       });
-
-      if (pdfResult && pdfResult.filePath) pdfFilePath = pdfResult.filePath;
-      else if (typeof pdfResult === "string") pdfFilePath = pdfResult;
-      else if (pdfResult && pdfResult.buffer) {
-        
-        const tmpPdfPath = path.join(process.cwd(), `tmp_bill_${Date.now()}.pdf`);
-        fs.writeFileSync(tmpPdfPath, pdfResult.buffer);
-        pdfFilePath = tmpPdfPath;
-      } else {
-       
-        pdfFilePath = null;
-      }
-    } catch (pdfErr) {
-      console.warn("PDF generation failed:", pdfErr.message || pdfErr);
-      pdfFilePath = null;
     }
 
-    try {
-      const attachments = [];
-
-      if (pdfFilePath && fs.existsSync(pdfFilePath)) {
-        const pdfBuf = fs.readFileSync(pdfFilePath);
-        attachments.push({
-          content: pdfBuf.toString("base64"),
-          filename: "bill.pdf",
-          type: "application/pdf",
-          disposition: "attachment",
-        });
+    const emailBody = `
+      <p>Hello ${client.firstName || ""},</p>
+      <p>Your service <b>${work.serviceType || ""}</b> has been completed.</p>
+      <p><b>Total Amount:</b> ₹${totalAmount}</p>
+      ${
+        paymentMethod === "upi"
+          ? `<p><b>Pay Now:</b> <a href="${clickableUPI}">Click here to pay via UPI</a></p>
+             <p><img src="cid:qr_code" width="180" /></p>`
+          : `<p><b>Payment Mode:</b> Cash</p>`
       }
+      <p>The bill (PDF) is attached.</p>
+      <p>Thank you!</p>
+    `;
 
-      if (qrDataUrl) {
-   
-        const qrBase64 = qrDataUrl.split(",")[1];
-        attachments.push({
-          content: qrBase64,
-          filename: "upi-qr.png",
-          type: "image/png",
-          disposition: "inline",
-          content_id: "qr_code",
-        });
-      }
+    await sendEmail(client.email, "Your Bill & Payment Details", emailBody, attachments);
 
-      
-      const emailHtml = `
-        <p>Hello ${work.client.firstName || work.client.name || ""},</p>
-        <p>Your service <strong>${work.serviceType || ""}</strong> has been completed.</p>
-        <p><strong>Total Amount:</strong> ₹${totalAmount}</p>
-        ${paymentMethod === "upi" && upiUri ? `
-          <p><strong>Pay via UPI:</strong> <a href="${upiUri}">${upiUri}</a></p>
-          ${qrDataUrl ? `<p>Or scan the QR code below:</p><img src="cid:qr_code" width="220" />` : ""}
-        ` : `<p><strong>Payment Mode:</strong> Cash</p>`}
-        <p>The invoice is attached.</p>
-        <p>Thank you!</p>
-      `;
-
-    
-      if (work.client.email) {
-        await sendEmail(work.client.email, "Your Service Bill & Payment Details", emailHtml, attachments);
-      } else {
-        console.warn("Client has no email, skipping email send.");
-      }
-
-     
-      try {
-        if (pdfFilePath && pdfFilePath.includes("tmp_bill_") && fs.existsSync(pdfFilePath)) {
-          fs.unlinkSync(pdfFilePath);
-        }
-      } catch (e) {
-        console.warn("Failed to delete temp PDF:", e.message || e);
-      }
-    } catch (emailErr) {
-      console.warn("Failed to send email:", emailErr.message || emailErr);
-     
-    }
-
-    
+    // ----------- UPDATE WORK STATUS -----------
     work.status = "completed";
     work.completedAt = new Date();
     work.billId = bill._id;
     await work.save();
 
-   
-    res.status(200).json({
-      message: "Work completed: after-photo stored (cloudinary or base64), bill created, PDF/email attempted.",
-      afterphoto: work.afterphoto, 
+    return res.status(200).json({
+      message: "Work completed successfully",
+      afterphoto: finalPhotoUrl,
       bill,
-      upiUri: bill.upiUri || null,
+      upiUri,
+      clickableUPI,
     });
+
   } catch (err) {
     console.error("COMPLETE WORK ERROR:", err);
-    res.status(500).json({ message: "Error completing work", error: err.message || err });
+    return res.status(500).json({ message: "Error completing work", error: err.message });
   }
 };
+
 exports.getTechnicianSummary1 = async (req, res) => {
   try {
    
