@@ -19,10 +19,12 @@ if (!fs.existsSync(invoicesFolder)) {
 
 exports.completeWorkAndGenerateBill = async (req, res) => {
   try {
-    const { workId, serviceCharge = 0, paymentMethod = "upi", upiId } = req.body;
+    const { workId, serviceCharge , paymentMethod = "upi", upiId } = req.body;
     const technicianId = req.user._id;
 
-    // Validate work
+  const paymentId = "pay_" + Date.now();
+  const expiresAt = Date.now() + 10 * 60 * 1000; 
+    
     const work = await Work.findById(workId).populate("client");
     if (!work) return res.status(404).json({ message: "Work not found" });
 
@@ -30,10 +32,8 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
       return res.status(403).json({ message: "You are not assigned to this work" });
     }
 
-    // After-photo required
     if (!req.file) return res.status(400).json({ message: "After photo is required" });
 
-    // Save photo: try Cloudinary then fallback to base64
     let finalPhotoUrl = null;
     const localPath = req.file.path;
 
@@ -53,13 +53,13 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
       try { if (fs.existsSync(localPath)) fs.unlinkSync(localPath); } catch (e) {}
     }
 
-    // Save photo to work
+    
     work.afterphoto = finalPhotoUrl;
 
-    // PAYMENT calculations
-    const totalAmount = Number(serviceCharge) || 0;
+  
+    const totalAmount = Number(work.serviceCharge) ;
 
-    // Prepare bill data
+ 
     const billData = {
       workId: work._id,
       technicianId,
@@ -74,15 +74,15 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
     let clickableUPI = null;
     let upiUri = null;
 
-    // ----------- UPI PAYMENT HANDLING -----------
+   
     if (paymentMethod === "upi") {
       const finalUpi = upiId || process.env.upi_id;
       if (!finalUpi) return res.status(400).json({ message: "UPI ID is required for UPI payment" });
 
       const name = encodeURIComponent(req.user.firstName || "Technician");
-      upiUri = `upi://pay?pa=${finalUpi}&pn=${name}&am=${totalAmount}&cu=INR&tn=Service%20Payment`;
+      upiUri = `upi://pay?pa=${finalUpi}&pn=${name}&am=${serviceCharge}&cu=INR&tn=Service%20Payment`;
 
-      clickableUPI = `https://upi.me/pay?pa=${finalUpi}&pn=${name}&am=${totalAmount}&cu=INR&tn=Service%20Payment`;
+      clickableUPI = `https://upi.me/pay?pa=${finalUpi}&pn=${name}&am=${serviceCharge}&cu=INR&tn=Service%20Payment`;
 
       const qrDataUrl = await QRCode.toDataURL(upiUri);
       qrBuffer = Buffer.from(qrDataUrl.split(",")[1], "base64");
@@ -92,13 +92,12 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
       billData.qrImage = qrDataUrl;
     }
 
-    // Save bill in DB
+    
     const bill = await Bill.create(billData);
 
-    // ----------- PDF GENERATION (FIXED PATH) -----------
+ 
     const filePath = path.join(invoicesFolder, `bill_${work._id}.pdf`);
 
-    // delete previous bill if exists
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
@@ -112,13 +111,14 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
       client,
       totalAmount,
       paymentMethod,
+      serviceCharge,
       totalAmount,
       qrBuffer,
       upiId || process.env.upi_id,
-      filePath // pass final path to util
+      filePath 
     );
 
-    // ----------- EMAIL ATTACHMENTS -----------
+
     const pdfBuffer = fs.readFileSync(filePath);
 
     const attachments = [
@@ -168,6 +168,7 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
       bill,
       upiUri,
       clickableUPI,
+      expiresAt,
     });
 
   } catch (err) {
