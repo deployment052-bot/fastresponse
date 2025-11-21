@@ -1,22 +1,24 @@
 const express = require("express");
+const { protect , authorize } = require("../middelware/authMiddelware");
 const router = express.Router();
 const {
   getAdminNotifications,
   markNotificationSeen,
   resolveNotification,
-  raiseWorkIssue
+  raiseWorkIssue,
+  getTechnicianWorkForAdmin,getAllTechniciansForAdmin,getAllClientForAdmin,getclientWorkForAdmin
 } = require("../controllers/admincontrooler");
+// const { getAllTechnicianWorks } = require("../controllers/techniciancontroller");
 
-// ✅ 1. Get all notifications (with optional status filter)
 router.get("/notifications", getAdminNotifications);
 
-// ✅ 2. Mark a notification as seen/unseen
 router.patch("/notifications/:id/seen", markNotificationSeen);
 
-// ✅ 3. Mark notification as resolved
 router.patch("/notifications/:id/resolve", resolveNotification);
 
-// ✅ 4. Technician raises issue (for test, can also use Postman)
-router.post("/raise-issue", raiseWorkIssue);
-
+router.post("/raise-issue", protect,authorize('admin'),raiseWorkIssue);
+router.post('/get-technician',protect,authorize('admin'),getTechnicianWorkForAdmin)
+router.get('/gettechnican',protect,authorize('admin'),getAllTechniciansForAdmin );
+router.get('/getclient',protect,authorize('admin'),getAllClientForAdmin);
+router.post('/getclientwork',protect,authorize('admin'),getclientWorkForAdmin);
 module.exports = router;
