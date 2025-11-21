@@ -180,3 +180,172 @@ exports.sendNotification = async (userId, role, title, message, type = "info", l
     console.error("❌ Notification Error:", err);
   }
 };
+
+exports.getTechnicianWorkForAdmin = async (req, res) => {
+  try {
+    const { technicianId } = req.body;
+
+    if (!technicianId) {
+      return res.status(400).json({ message: "Technician ID is required" });
+    }
+
+   
+    const technician = await User.findById(technicianId).select(
+      "firstName lastName email phone"
+    );
+
+    if (!technician) {
+      return res.status(404).json({ message: "Technician not found" });
+    }
+
+ 
+    const works = await Work.find({ assignedTechnician: technicianId })
+      .populate("client", "firstName lastName phone location ")
+      .populate("invoice")
+      .sort({ createdAt: -1 });
+
+ 
+    const totalWorkCount = works.length;
+
+    const activeCount = works.filter(w =>
+      ["dispatch", "inprogress","approved"].includes(w.status)
+    ).length;
+
+    const completedCount = works.filter(w => w.status === "completed").length;
+
+    const rejectedCount = works.filter(w => w.status === "rejected").length;
+
+   
+    const totalEarnings = works.reduce((sum, work) => {
+      const invoiceTotal = work.invoice?.total || 0;
+      const serviceCharge = work.serviceCharge || 0;
+      return sum + invoiceTotal + serviceCharge;
+    }, 0);
+
+   
+    res.status(200).json({
+      success: true,
+      technician,
+      summary: {
+        totalWorkCount,
+        activeCount,
+        completedCount,
+        rejectedCount,
+        totalEarnings,
+      },
+      works,  // All work details list
+    });
+
+  } catch (error) {
+    console.error("Admin Technician Work Summary Error:", error);
+    res.status(500).json({
+      message: "Failed to fetch technician work summary",
+      error: error.message,
+    });
+  }
+};
+
+
+
+
+
+
+
+exports.getAllTechniciansForAdmin = async (req, res) => {
+  try {
+    
+    const technicians = await User.find({ role: "technician" })
+      .select("firstName lastName email phone createdAt location specialization responsibility");
+
+    res.status(200).json({
+      success: true,
+      count: technicians.length,
+      technicians,
+    });
+
+  } catch (err) {
+    console.error("Get All Technicians Error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Unable to fetch technicians",
+    });
+  }
+};
+
+
+
+
+exports.getAllClientForAdmin=async (req,res)=>{
+try{
+    const client =await User.find ({role:"client"})
+  .select("firstName lastName email phone location createdAt");
+  res.status(200).json
+({
+  success:true,
+  count:client.length,
+  client,
+})
+}catch(err){
+console.error("Get all client error",err)
+res.status(500).json
+({
+  success:false,
+  message:"unable to fetch client "
+})}
+
+};
+
+exports.getclientWorkForAdmin = async (req, res) => {
+  try {
+    const { client } = req.body;
+
+    if (!client) {
+      return res.status(400).json({ message: "client ID is required" });
+    }
+
+   
+    const clientid = await User.findById(client).select(
+      "firstName lastName email phone"
+    );
+     console.log(clientid)
+    if (!clientid) {
+      return res.status(404).json({ message: "client not found" });
+    }
+
+ 
+    const works = await Work.find({ client: clientid })
+      .populate("assignedTechnician", "firstName lastName phone location specialization")
+      
+      .sort({ createdAt: -1 });
+
+ 
+    const totalWorkCount = works.length;
+
+    const activeCount = works.filter(w =>
+      ["dispatch", "inprogress","approved"].includes(w.status)
+    ).length;
+
+    const completedCount = works.filter(w => w.status === "completed").length;
+
+    const rejectedCount = works.filter(w => w.status === "rejected").length;
+res.status(200).json({
+      success: true,
+      clientid,
+      summary: {
+        totalWorkCount,
+        activeCount,
+        completedCount,
+        rejectedCount,
+      
+      },
+      works,  
+    });
+
+  } catch (error) {
+    console.error("Admin Technician Work Summary Error:", error);
+    res.status(500).json({
+      message: "Failed to fetch technician work summary",
+      error: error.message,
+    });
+  }
+};
