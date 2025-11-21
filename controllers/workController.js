@@ -265,7 +265,7 @@ exports.bookTechnician = async (req, res) => {
 
     const userId = req.user._id;
 
-    
+    // 🟢 Basic Validations
     if (!workId || !mongoose.Types.ObjectId.isValid(workId))
       return res.status(400).json({ message: "Invalid Work ID" });
 
@@ -278,49 +278,42 @@ exports.bookTechnician = async (req, res) => {
     if (!date)
       return res.status(400).json({ message: "Date required" });
 
+    // 🟢 Date Parse
     const parsedDate = parseClientDate(date);
     if (!parsedDate)
       return res.status(400).json({ message: "Invalid date format (DD-MM-YYYY)" });
 
+    // 🟢 Client Validation
     const client = await User.findById(userId);
     if (!client)
       return res.status(404).json({ message: "Client not found" });
 
+    // 🟢 Technician Validation
     const technician = await User.findById(technicianId);
     if (!technician)
       return res.status(404).json({ message: "Technician not found" });
 
-  
+
+    // 🟡 LOCATION NAME FROM LAT/LNG
     const locationName = await getAddressFromCoordinates(lat, lng);
     const finalLocation = locationName ? locationName.toLowerCase() : "unknown";
 
- 
+
+    // 🔥 **THIS IS YOUR FIXED LOGIC**
+    // Technician busy only if dispatch OR inprogress
     const techBusy = await Work.findOne({
       assignedTechnician: technicianId,
-      status: { $in: ["approved","dispatch", "inprogress"] }
+      status: { $in: ["dispatch", "inprogress"] }   // ONLY THESE TWO WILL BLOCK
     });
 
     if (techBusy) {
       return res.status(400).json({
-        message: `Technician ${technician.firstName} is currently busy in another work (status: ${techBusy.status}).`
+        message: `Technician ${technician.firstName} is busy (Current status: ${techBusy.status}).`
       });
     }
 
-   
-    const duplicateBooking = await Booking.findOne({
-      user: userId,
-      technician: technicianId,
-      serviceType,
-      status: { $in: ["dispatch", "inprogress"] }
-    });
 
-    if (duplicateBooking) {
-      return res.status(400).json({
-        message: `You already booked technician ${technician.firstName} for ${serviceType}.`
-      });
-    }
-
-    
+    // 🟢 Create Booking
     const booking = await Booking.create({
       user: userId,
       technician: technicianId,
@@ -337,6 +330,7 @@ exports.bookTechnician = async (req, res) => {
     });
 
 
+    // 🟢 Update Work Table
     const updatedWork = await Work.findByIdAndUpdate(
       workId,
       {
@@ -353,7 +347,8 @@ exports.bookTechnician = async (req, res) => {
       { new: true }
     );
 
- 
+
+    // 🟢 Success Response
     res.status(201).json({
       message: "Technician booked successfully.",
       booking,
@@ -368,6 +363,7 @@ exports.bookTechnician = async (req, res) => {
     });
   }
 };
+
 
 
 
