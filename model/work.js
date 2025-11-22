@@ -35,7 +35,7 @@ const workSchema = new mongoose.Schema(
         "approved",
 
         "reject",
-
+    
         "dispatch",
         "inprogress",
         "completed",
@@ -47,19 +47,37 @@ const workSchema = new mongoose.Schema(
       default: "open",
     },
 
+   issues: [
+  {
     issueType: {
       type: String,
-      enum: [
-        "need_parts",
-        "need_specialist",
+      enum: ["need_parts", "need_specialist", "customer_unavailable", "other"],
+    },
+    remarks: String,
+    raisedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    raisedAt: { type: Date, default: Date.now },
 
-        "customer_unavailable",
-        null,
-      ],
-      default: null,
+    status: {
+      type: String,
+      enum: ["open", "resolved"],
+      default: "open",
     },
 
-    
+    resolvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    resolvedAt: { type: Date },
+  }
+],
+
+issueCount: {
+  type: Number,
+  default: 0,
+},
+
+
+    publicStatus: {
+  type: String,
+  default: "inprogress", // client ko dikhane ke liye
+},
 
     beforphoto: { type: String },
 
@@ -85,7 +103,7 @@ const workSchema = new mongoose.Schema(
       pdfUrl: String,
     },
 
-    // 💰 Reference to main bill document
+    
     billId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Bill",
@@ -99,7 +117,6 @@ const workSchema = new mongoose.Schema(
       paidAt: { type: Date }, // client side payment time
     },
 
-    // 👷 Who completed the work
     completedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -116,11 +133,10 @@ const workSchema = new mongoose.Schema(
     completedAt: { type: Date },
   },
   {
-    timestamps: true, // auto adds createdAt + updatedAt
+    timestamps: true, 
   }
 );
 
-// Automatically update updatedAt before saving
 workSchema.pre("save", function (next) {
   this.updatedAt = new Date();
   next();
