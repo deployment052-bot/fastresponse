@@ -9,13 +9,13 @@ router.get("/summary-count", protect,authorize('technician') ,technicianControll
 
 
 router.get("/summary-count-1", protect,authorize('technician') ,technicianController.getTechnicianSummary1 );// abhi k liye yw wali count
-// Available Jobs
-router.get("/available-jobs", protect, technicianController.getAvailableJobs);
 
-// Approve Job
-router.post("/approve-job", protect, technicianController.approveJob);
+router.get("/available-jobs", protect,authorize('technician'), technicianController.getAvailableJobs);
 
 
+router.post("/approve-job", protect, authorize('technician'),technicianController.approveJob);
 
+
+router.post("/issueraise",technicianController.raiseWorkIssue)
 router.post("/payment", protect,authorize('technician') ,technicianController.confirmPayment);
 module.exports = router;
