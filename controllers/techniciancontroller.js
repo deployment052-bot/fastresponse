@@ -2,9 +2,9 @@
 const fs = require("fs");
 const path = require("path");
 const QRCode = require("qrcode");
-const { uploadToCloudinary } = require("../utils/cloudinaryUpload"); // adjust path
-const { generateBillPDF } = require("../utils/Invoice"); // adjust path
-const sendEmail = require("../utils/sendemail"); // adjust path
+const { uploadToCloudinary } = require("../utils/cloudinaryUpload"); 
+const { generateBillPDF } = require("../utils/Invoice"); 
+const sendEmail = require("../utils/sendemail"); 
 const Work = require("../model/work");
 const User = require("../model/user");
 const Bill = require("../model/Bill");
@@ -12,17 +12,19 @@ const Bill = require("../model/Bill");
 const projectRoot = process.cwd();
 const invoicesFolder = path.join(projectRoot, "invoices");
 
-// ensure invoices folder exists
+
 if (!fs.existsSync(invoicesFolder)) {
   fs.mkdirSync(invoicesFolder, { recursive: true });
 }
 
 exports.completeWorkAndGenerateBill = async (req, res) => {
   try {
-    const { workId, serviceCharge = 0, paymentMethod = "upi", upiId } = req.body;
+    const { workId, serviceCharge , paymentMethod = "upi", upiId } = req.body;
     const technicianId = req.user._id;
 
-    // Validate work
+  const paymentId = "pay_" + Date.now();
+  const expiresAt = Date.now() + 10 * 60 * 1000; 
+    
     const work = await Work.findById(workId).populate("client");
     if (!work) return res.status(404).json({ message: "Work not found" });
 
@@ -30,10 +32,8 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
       return res.status(403).json({ message: "You are not assigned to this work" });
     }
 
-    // After-photo required
     if (!req.file) return res.status(400).json({ message: "After photo is required" });
 
-    // Save photo: try Cloudinary then fallback to base64
     let finalPhotoUrl = null;
     const localPath = req.file.path;
 
@@ -53,13 +53,13 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
       try { if (fs.existsSync(localPath)) fs.unlinkSync(localPath); } catch (e) {}
     }
 
-    // Save photo to work
+    
     work.afterphoto = finalPhotoUrl;
 
-    // PAYMENT calculations
-    const totalAmount = Number(serviceCharge) || 0;
+  
+    const totalAmount = Number(work.serviceCharge) ;
 
-    // Prepare bill data
+ 
     const billData = {
       workId: work._id,
       technicianId,
@@ -74,15 +74,15 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
     let clickableUPI = null;
     let upiUri = null;
 
-    // ----------- UPI PAYMENT HANDLING -----------
+   
     if (paymentMethod === "upi") {
       const finalUpi = upiId || process.env.upi_id;
       if (!finalUpi) return res.status(400).json({ message: "UPI ID is required for UPI payment" });
 
       const name = encodeURIComponent(req.user.firstName || "Technician");
-      upiUri = `upi://pay?pa=${finalUpi}&pn=${name}&am=${totalAmount}&cu=INR&tn=Service%20Payment`;
+      upiUri = `upi://pay?pa=${finalUpi}&pn=${name}&am=${serviceCharge}&cu=INR&tn=Service%20Payment`;
 
-      clickableUPI = `https://upi.me/pay?pa=${finalUpi}&pn=${name}&am=${totalAmount}&cu=INR&tn=Service%20Payment`;
+      clickableUPI = `https://upi.me/pay?pa=${finalUpi}&pn=${name}&am=${serviceCharge}&cu=INR&tn=Service%20Payment`;
 
       const qrDataUrl = await QRCode.toDataURL(upiUri);
       qrBuffer = Buffer.from(qrDataUrl.split(",")[1], "base64");
@@ -92,13 +92,12 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
       billData.qrImage = qrDataUrl;
     }
 
-    // Save bill in DB
+    
     const bill = await Bill.create(billData);
 
-    // ----------- PDF GENERATION (FIXED PATH) -----------
+ 
     const filePath = path.join(invoicesFolder, `bill_${work._id}.pdf`);
 
-    // delete previous bill if exists
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
@@ -112,13 +111,14 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
       client,
       totalAmount,
       paymentMethod,
+      serviceCharge,
       totalAmount,
       qrBuffer,
       upiId || process.env.upi_id,
-      filePath // pass final path to util
+      filePath 
     );
 
-    // ----------- EMAIL ATTACHMENTS -----------
+
     const pdfBuffer = fs.readFileSync(filePath);
 
     const attachments = [
@@ -168,6 +168,7 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
       bill,
       upiUri,
       clickableUPI,
+      expiresAt,
     });
 
   } catch (err) {
@@ -176,6 +177,8 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
   }
 };
 
+
+// abhi hum ye code use kr rahe h technician k work count k liye 
 exports.getTechnicianSummary1 = async (req, res) => {
   try {
     const technicianId = req.user._id;
@@ -234,6 +237,8 @@ exports.getTechnicianSummary1 = async (req, res) => {
     });
   }
 };
+
+
 
 exports.getTechnicianSummary = async (req, res) => {
   try {
@@ -332,6 +337,9 @@ exports.getTechnicianSummarybycount = async (req, res) => {
 
     res.status(200).json({
       success: true,
+
+      totalWorkCount: works.length,   // 🌟 NEW FIELD ADDED 🌟
+
       summary: {
         total: works.length,
         completed: completed.length,
@@ -340,6 +348,7 @@ exports.getTechnicianSummarybycount = async (req, res) => {
         onHold: onHold.length,
         totalEarnings,
       },
+
       data: {
         completed,
         inProgress,
@@ -352,6 +361,7 @@ exports.getTechnicianSummarybycount = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
 
 exports.getAllTechnicianWorks = async (req, res) => {
   try {
@@ -460,3 +470,52 @@ exports.confirmPayment = async (req, res) => {
   }
 };
 
+
+
+
+exports.raiseWorkIssue = async (req, res) => {
+  try {
+    const { workId, issueType, remarks } = req.body;
+     const technicianId =
+      req.user && req.user._id ? req.user._id : req.body.technicianId;
+
+    const work = await Work.findById(workId);
+    if (!work) return res.status(404).json({ message: "Work not found" });
+
+    
+    work.issues.push({
+      issueType,
+      remarks,
+      raisedBy: technicianId,
+      status: "open"
+    });
+
+    work.issueCount = (work.issueCount || 0) + 1;
+
+   
+    switch (issueType) {
+      case "need_parts":
+        work.status = "inprogress";
+        break;
+      case "need_specialist":
+        work.status = "inprogress";
+        break;
+      case "customer_unavailable":
+        work.status = "inprogress";
+        break;
+      default:
+        work.status = "inprogress";
+    }
+
+    await work.save();
+
+    res.status(201).json({
+      message: "Issue raised successfully",
+      work,
+    });
+
+  } catch (error) {
+    console.error("Raise Issue Error:", error);
+    res.status(500).json({ message: "Failed to raise issue" });
+  }
+};
