@@ -1,14 +1,14 @@
 const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema({
-  // 🔹 Common fields
+
   firstName: { type: String, trim: true },
   lastName: { type: String, trim: true },
   image:{type:String},
   email: { type: String, unique: true, sparse: true, lowercase: true, trim: true },
   phone: { type: String, unique: true, sparse: true, trim: true },
   password: { type: String },
-  confirmPassword: { type: String }, // optional – not stored after hashing
+  confirmPassword: { type: String }, 
   role: {
     type: String,
     enum: ["client", "technician", "admin"],
@@ -17,12 +17,17 @@ const userSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true },
   createdAt: { type: Date, default: Date.now },
 
-  // 🔹 OAuth / Social login
+  //admin degignation like hr admin , store admin
+designation:{
+  type:String,
+},
+  
   googleId: String,
   facebookId: String,
+
   avatar: String,
 
-  // 🔹 Common location fields
+  
   location: String,
   coordinates: {
     lat: Number,
@@ -30,12 +35,12 @@ const userSchema = new mongoose.Schema({
   },
   lastLocationUpdate: Date,
 
-  // 🔹 Client-specific fields
+
   companyName: String,
   address: String,
   gstNumber: String,
 
-  // 🔹 Technician-specific fields
+  
   experience: Number,
   specialization: [String],
   responsibility: String,
@@ -50,11 +55,11 @@ const userSchema = new mongoose.Schema({
     default: "available",
   },
 
-  // 🔹 Admin-specific fields
+ // eska use kabhi admin ki permissions k liye kiya jayega 
   department: String,
   permissions: [String],
 
-  // 🔹 Verification
+ 
   isEmailVerified: { type: Boolean, default: false },
   emailOTP: String,
   emailOTPExpires: Date,
