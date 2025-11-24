@@ -982,36 +982,28 @@ exports.subscribe = async (req, res) => {
   try {
     const { email } = req.body;
 
-    if (!email) return res.status(400).json({ message: "Email required" });
+    if (!email) {
+      return res.status(400).json({ message: "Email required" });
+    }
 
- 
+    // Check existing subscriber
     const exist = await Newsletter.findOne({ email });
     if (exist) {
       return res.status(200).json({ message: "Already subscribed!" });
     }
 
-    const user = await Newsletter.create({ email });
+    // Save subscriber
+    await Newsletter.create({ email });
 
-   
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    });
-
-    const mailOptions = {
-      from: process.env.SMTP_USER,
-      to: email,
-      subject: "You're Subscribed! ",
-      html: `
-        <h2>Welcome to Our Newsletter </h2>
-        <p>Thank you for subscribing. You’ll now receive updates directly from us.</p>
-      `,
-    };
-
-    await transporter.sendMail(mailOptions);
+    // Send Welcome Email using SENDGRID
+    await sendemail(
+      email,
+      "You're Subscribed! 🎉",
+      `
+        <h2>Welcome to Our Newsletter ❤️</h2>
+        <p>Thank you for subscribing. You'll now receive updates directly from us.</p>
+      `
+    );
 
     return res.status(200).json({
       success: true,
