@@ -3,6 +3,7 @@ const Work = require("../model/work");
 const User = require("../model/user");
 const Booking=require("../model/BookOrder")
 const AdminNotification=require('../model/adminnotification')
+const Newsletter = require("../model/sub");
 const axios = require("axios");
 const fs = require("fs");
 const PDFDocument = require("pdfkit");
@@ -967,5 +968,110 @@ exports.selectRoute = async (req, res) => {
   } catch (err) {
     console.error("Select Route Error:", err);
     res.status(500).json({ message: "Server error" });
+  }
+};
+exports.subscribe = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) return res.status(400).json({ message: "Email required" });
+
+ 
+    const exist = await Newsletter.findOne({ email });
+    if (exist) {
+      return res.status(200).json({ message: "Already subscribed!" });
+    }
+
+    const user = await Newsletter.create({ email });
+
+   
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+
+    const mailOptions = {
+      from: process.env.SMTP_USER,
+      to: email,
+      subject: "You're Subscribed! ",
+      html: `
+        <h2>Welcome to Our Newsletter </h2>
+        <p>Thank you for subscribing. You’ll now receive updates directly from us.</p>
+      `,
+    };
+
+    await transporter.sendMail(mailOptions);
+
+    return res.status(200).json({
+      success: true,
+      message: "Subscribed successfully & email sent!"
+    });
+
+  } catch (error) {
+    console.error("Newsletter Error:", error);
+    res.status(500).json({ message: "Something went wrong" });
+  }
+};
+
+exports.sendBulkEmail = async (req, res) => {
+  try {
+    const { subject, message } = req.body;
+
+    if (!subject || !message) {
+      return res.status(400).json({ message: "Subject and message required" });
+    }
+
+    const subscribers = await Newsletter.find({}, "email");
+
+    if (subscribers.length === 0) {
+      return res.status(400).json({ message: "No subscribers found" });
+    }
+
+ 
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.ADMIN_EMAIL,
+        pass: process.env.ADMIN_PASSWORD,
+      },
+    });
+
+    for (let sub of subscribers) {
+      const mailOptions = {
+        from: process.env.ADMIN_EMAIL,
+        to: sub.email,
+        subject,
+        html: `
+          <div style="font-family: Arial; padding: 10px;">
+            <h2>${subject}</h2>
+            <p>${message}</p>
+          </div>
+        `,
+      };
+
+      await transporter.sendMail(mailOptions);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Bulk emails sent successfully!",
+      count: subscribers.length,
+    });
+
+  } catch (error) {
+    console.error("Bulk Email Error:", error);
+    res.status(500).json({ message: "Failed to send bulk emails" });
+  }
+};
+
+exports.getSubscribers = async (req, res) => {
+  try {
+    const list = await Newsletter.find().sort({ subscribedAt: -1 });
+    res.status(200).json({ success: true, subscribers: list });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch subscribers" });
   }
 };
