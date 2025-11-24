@@ -4,6 +4,7 @@ const path = require("path");
 const QRCode = require("qrcode");
 const { uploadToCloudinary } = require("../utils/cloudinaryUpload"); 
 const { generateBillPDF } = require("../utils/Invoice"); 
+const {generatePaymentReceiptPDF}= require("../utils/finalinvoice");
 const sendEmail = require("../utils/sendemail"); 
 const Work = require("../model/work");
 const User = require("../model/user");
@@ -411,8 +412,8 @@ exports.confirmPayment = async (req, res) => {
     const technicianId = req.user._id;
 
     const work = await Work.findById(workId)
-      .populate("client", "firstName email")
-      .populate("assignedTechnician", "firstName _id");
+      .populate("client", "firstName email phone")
+      .populate("assignedTechnician", "firstName token email role phone");
 
     if (!work) return res.status(404).json({ message: "Work not found" });
 
@@ -422,9 +423,9 @@ exports.confirmPayment = async (req, res) => {
     }
 
    
-    if (work.status !== "completed") {
-      return res.status(400).json({ message: "Work must be completed before confirming payment" });
-    }
+    // if (work.status!=="completed") {
+    //   return res.status(400).json({ message: "Work must be completed before confirming payment" });
+    // }
 
     
     if (!["cash", "upi"].includes(paymentMethod)) {
@@ -443,21 +444,43 @@ exports.confirmPayment = async (req, res) => {
    
     work.status = "confirm";
     await work.save();
+ const receiptFilePath = path.join(
+      invoicesFolder,
+      `payment_receipt_${work.token}.pdf`
+    );
 
-    
-    if (work.client?.email) {
-      await sendEmail(
-        work.client.email,
-        "💰 Payment Confirmed - Thank You!",
-        `
-        <p>Dear ${work.client.firstName || "Customer"},</p>
-        <p>Your payment for <b>Work ID: ${work._id}</b> has been successfully confirmed.</p>
-        <p><b>Payment Method:</b> ${paymentMethod.toUpperCase()}</p>
-        <p>Technician: ${work.assignedTechnician.firstName}</p>
-        <p>Thank you for your trust!</p>
-        `
-      );
-    }
+    if (fs.existsSync(receiptFilePath)) fs.unlinkSync(receiptFilePath);
+
+    await generatePaymentReceiptPDF(
+      work,
+      work.assignedTechnician,
+      work.client,
+      receiptFilePath
+    );
+
+    const pdfBuffer = fs.readFileSync(receiptFilePath);
+    const emailBody = `
+      <p>Hello ${work.client.firstName || ""},</p>
+      <p>Your payment for Work ID <b>${work.token}</b> has been successfully confirmed.</p>
+      <p><b>Payment Method:</b> ${paymentMethod.toUpperCase()}</p>
+      <p><b>Technician:</b> ${work.assignedTechnician.firstName}</p>
+      <p>Your payment receipt is attached as a PDF.</p>
+    `;
+
+    await sendEmail(
+      work.client.email,
+      "Payment Receipt - Thank You",
+      emailBody,
+      [
+        {
+          content: pdfBuffer.toString("base64"),
+          filename: `payment_receipt_${work.token}.pdf`,
+          type: "application/pdf",
+          disposition: "attachment",
+        },
+      ]
+    );
+
 
     res.status(200).json({
       success: true,
@@ -465,11 +488,10 @@ exports.confirmPayment = async (req, res) => {
       payment: work.payment,
     });
   } catch (err) {
-    console.error("❌ Confirm Payment Error:", err);
+    console.error(" Confirm Payment Error:", err);
     res.status(500).json({ message: "Server error while confirming payment." });
   }
 };
-
 
 
 
