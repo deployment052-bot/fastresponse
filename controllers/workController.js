@@ -250,6 +250,7 @@ exports.findMatchingTechnicians = async (req, res) => {
 
 
 
+
 exports.bookTechnician = async (req, res) => {
   try {
     const {
@@ -266,7 +267,6 @@ exports.bookTechnician = async (req, res) => {
 
     const userId = req.user._id;
 
-    // 🟢 Basic Validations
     if (!workId || !mongoose.Types.ObjectId.isValid(workId))
       return res.status(400).json({ message: "Invalid Work ID" });
 
@@ -279,42 +279,52 @@ exports.bookTechnician = async (req, res) => {
     if (!date)
       return res.status(400).json({ message: "Date required" });
 
-    // 🟢 Date Parse
     const parsedDate = parseClientDate(date);
     if (!parsedDate)
       return res.status(400).json({ message: "Invalid date format (DD-MM-YYYY)" });
 
-    // 🟢 Client Validation
     const client = await User.findById(userId);
     if (!client)
       return res.status(404).json({ message: "Client not found" });
 
-    // 🟢 Technician Validation
     const technician = await User.findById(technicianId);
     if (!technician)
       return res.status(404).json({ message: "Technician not found" });
 
-
-    // 🟡 LOCATION NAME FROM LAT/LNG
     const locationName = await getAddressFromCoordinates(lat, lng);
     const finalLocation = locationName ? locationName.toLowerCase() : "unknown";
 
 
-    // 🔥 **THIS IS YOUR FIXED LOGIC**
-    // Technician busy only if dispatch OR inprogress
-    const techBusy = await Work.findOne({
-      assignedTechnician: technicianId,
-      status: { $in: ["dispatch", "inprogress"] }   // ONLY THESE TWO WILL BLOCK
+   
+    const existingBooking = await Booking.findOne({
+      user: userId,
+      technician: technicianId,
+      status: { $in: ["approved", "dispatch", "inprogress"] } 
     });
 
-    if (techBusy) {
+    if (existingBooking) {
       return res.status(400).json({
-        message: `Technician ${technician.firstName} is busy (Current status: ${techBusy.status}).`
+        message: `You have already booked ${technician.firstName}. Please wait until the previous work is completed.`,
+        bookingId: existingBooking._id,
+        status: existingBooking.status
       });
     }
 
 
-    // 🟢 Create Booking
+    
+    const techBusy = await Work.findOne({
+      assignedTechnician: technicianId,
+      status: { $in: ["dispatch", "inprogress"] }
+    });
+
+    if (techBusy) {
+      return res.status(400).json({
+        message: `Technician ${technician.firstName} is currently busy (Status: ${techBusy.status}).`
+      });
+    }
+
+
+ 
     const booking = await Booking.create({
       user: userId,
       technician: technicianId,
@@ -331,7 +341,7 @@ exports.bookTechnician = async (req, res) => {
     });
 
 
-    // 🟢 Update Work Table
+    
     const updatedWork = await Work.findByIdAndUpdate(
       workId,
       {
@@ -349,7 +359,6 @@ exports.bookTechnician = async (req, res) => {
     );
 
 
-    // 🟢 Success Response
     res.status(201).json({
       message: "Technician booked successfully.",
       booking,
@@ -364,7 +373,6 @@ exports.bookTechnician = async (req, res) => {
     });
   }
 };
-
 
 
 
