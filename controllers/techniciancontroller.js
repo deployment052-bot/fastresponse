@@ -475,37 +475,45 @@ exports.confirmPayment = async (req, res) => {
 
 exports.raiseWorkIssue = async (req, res) => {
   try {
-    const { workId, issueType, remarks } = req.body;
-     const technicianId =
+    const { workId, issueType, remarks, specializationRequired, reason } = req.body;
+    
+    const technicianId =
       req.user && req.user._id ? req.user._id : req.body.technicianId;
 
     const work = await Work.findById(workId);
     if (!work) return res.status(404).json({ message: "Work not found" });
 
     
-    work.issues.push({
+    const issueData = {
       issueType,
       remarks,
       raisedBy: technicianId,
       status: "open"
-    });
+    };
 
-    work.issueCount = (work.issueCount || 0) + 1;
-
-   
     switch (issueType) {
       case "need_parts":
         work.status = "inprogress";
         break;
+
       case "need_specialist":
+        issueData.specializationRequired = specializationRequired;
+        issueData.reason = reason;
         work.status = "inprogress";
         break;
+
       case "customer_unavailable":
         work.status = "inprogress";
         break;
+
       default:
         work.status = "inprogress";
     }
+
+
+    work.issues.push(issueData);
+
+    work.issueCount = (work.issueCount || 0) + 1;
 
     await work.save();
 
