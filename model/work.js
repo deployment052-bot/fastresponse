@@ -101,6 +101,12 @@ issueCount: {
       tax: Number,
       total: Number,
       pdfUrl: String,
+      payment:{
+        type:String,
+        enum:['upi','cash'],
+        
+      },
+
     },
 
     
