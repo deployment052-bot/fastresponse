@@ -79,7 +79,7 @@ issueCount: {
   default: "inprogress", // client ko dikhane ke liye
 },
 
-    beforphoto: { type: String },
+    beforephoto: { type: String },
 
 
 
