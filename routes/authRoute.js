@@ -40,16 +40,23 @@ router.get(
   passport.authenticate("google", { failureRedirect: "/auth/failure" }),
   (req, res) => {
     try {
-      const { token } = req.user;
+      const token = req.user?.token;
+
+      if (!token) {
+        console.error("❌ Google Login Error: Token missing in req.user");
+        return res.redirect(`${FRONTEND_URL}/?error=token_missing`);
+      }
+
       const frontend = process.env.FRONTEND_URL || "https://whimsical-fenglisu-4a7b67.netlify.app";
 
-      return res.redirect(`https://whimsical-fenglisu-4a7b67.netlify.app/?token=${token}`);
+      return res.redirect(`${frontend}/?token=${token}`);
     } catch (err) {
       console.error("Google Callback Error:", err);
       res.status(500).json({ message: "Server error during Google login" });
     }
   }
 );
+
 
 
 
