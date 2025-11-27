@@ -42,24 +42,9 @@ router.get(
       { expiresIn: "7d" }
     );
 
-    const frontend =
-      process.env.FRONTEND_URL || "http://localhost:5173";
-
-    res.redirect(`${frontend}/?token=${token}`);
+    res.redirect(`${FRONTEND}/?token=${token}&role=${req.user.role}&email=${req.user.email}`);
   }
 );
-router.get(
-  "/facebook",
-  (req, res, next) => {
-    const role = req.query.role || "client";
-    if (role !== "client") {
-      return res.status(403).json({ message: "Facebook login allowed only for clients" });
-    }
-    next();
-  },
-  passport.authenticate("facebook", { scope: ["email"] })
-);
-
 router.get(
   "/facebook/callback",
   passport.authenticate("facebook", { failureRedirect: "/auth/failure" }),
