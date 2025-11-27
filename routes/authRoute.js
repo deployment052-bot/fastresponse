@@ -40,22 +40,19 @@ router.get(
   passport.authenticate("google", { failureRedirect: "/auth/failure" }),
   (req, res) => {
     try {
-      const token = req.user?.token;
-
-      if (!token) {
-        console.error("❌ Google Login Error: Token missing in req.user");
-        return res.redirect(`${FRONTEND_URL}/?error=token_missing`);
+      if (req.user.role !== "client") {
+        
+        return res.redirect(`${FRONTEND_URL}/login?error=only-clients-allowed`);
       }
-
-      const frontend = process.env.FRONTEND_URL || "https://whimsical-fenglisu-4a7b67.netlify.app";
-
-      return res.redirect(`${frontend}/?token=${token}`);
+      const token = req.user.token;
+      return res.redirect(`${FRONTEND_URL}/client?token=${token}`);
     } catch (err) {
       console.error("Google Callback Error:", err);
-      res.status(500).json({ message: "Server error during Google login" });
+      return res.status(500).json({ message: "Server error during Google login" });
     }
   }
 );
+
 
 
 
