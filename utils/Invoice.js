@@ -1,13 +1,13 @@
-// utils/generateBillPDF.js
+
 const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
 
-// FIX: PROJECT ROOT ALWAYS CORRECT
+
 const projectRoot = process.cwd();
 const invoicesFolder = path.join(projectRoot, "invoices");
 
-// Ensure /invoices exists
+
 if (!fs.existsSync(invoicesFolder)) {
   fs.mkdirSync(invoicesFolder, { recursive: true });
 }
@@ -20,25 +20,24 @@ exports.generateBillPDF = async (
   paymentMethod,
   totalAmount,
   qrBuffer,
-  upiId
+  upiId ,
 ) => {
   return new Promise((resolve, reject) => {
     try {
-      // FIX: ALWAYS SAVE PDF IN ROOT /invoices FOLDER
+      
       const filePath = path.join(invoicesFolder, `bill_${work._id}.pdf`);
 
-      // FIX: DELETE OLD FILE IF EXISTS
+      
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
 
       const doc = new PDFDocument({ size: "A4", margin: 50 });
 
-      // STREAM TO FILE
+      
       const stream = fs.createWriteStream(filePath);
       doc.pipe(stream);
 
-      // ---------- COLORS + HELPERS ----------
       const colors = {
         dark: "#222222",
         muted: "#666666",
@@ -51,7 +50,7 @@ exports.generateBillPDF = async (
         bold: "Helvetica-Bold",
       };
 
-      const formatCurrency = (n) => `₹${(Number(n) || 0).toFixed(2)}`;
+      const formatCurrency = (n) => `${(Number(n) || 0).toFixed(2)}`;
 
       const formatDate = (d) => {
         const date = d ? new Date(d) : new Date();
@@ -72,14 +71,14 @@ exports.generateBillPDF = async (
           .stroke();
       };
 
-      // ---------------- HEADER ----------------
+      
       const leftX = pageMargin;
       const rightX = pageWidth - pageMargin - 200;
 
       doc.fillColor(colors.dark)
         .font(font.bold)
         .fontSize(34)
-        .text("Bill", leftX, pageMargin);
+        .text("Bill To Pay ", leftX, pageMargin);
 
       doc.font(font.bold)
         .fontSize(11)
@@ -87,16 +86,16 @@ exports.generateBillPDF = async (
 
       doc.font(font.regular)
         .fontSize(10)
-        .text("221B Baker Street", rightX, pageMargin + 18, { align: "right" })
-        .text("London, UK", { align: "right" })
-        .text("Phone: +44 20 7946 0958", { align: "right" });
+        .text("I tech spze park ", rightX, pageMargin + 18, { align: "right" })
+        .text("gurgao, hariyana", { align: "right" })
+        .text("Phone: +91 79464 50958", { align: "right" });
 
       const afterHeader = pageMargin + 70;
 
-      // ------------- CLIENT + TECHNICIAN -------------
+    
       let leftY = afterHeader;
 
-      doc.font(font.bold).fontSize(12).fillColor(colors.accent).text("Billed To", leftX, leftY);
+      doc.font(font.bold).fontSize(12).fillColor(colors.accent).text("Bill To", leftX, leftY);
       leftY += 16;
 
       doc.font(font.regular).fontSize(11).fillColor(colors.dark);
@@ -117,13 +116,13 @@ exports.generateBillPDF = async (
       leftY += 14;
       technician.email && doc.text(technician.email, leftX, leftY);
 
-      // ---------------- BILL META ----------------
+   
       let rightY = afterHeader;
 
       const metaBlock = [
         ["Bill Date", formatDate(work?.createdAt)],
         ["Bill Number", `BILL-${work.token || work._id}`],
-        ["Bill Amount", formatCurrency(totalAmount)],
+        ["Bill Amount", formatCurrency(serviceCharge)],
       ];
 
       metaBlock.forEach(([label, value]) => {
@@ -137,7 +136,7 @@ exports.generateBillPDF = async (
       const separatorY = Math.max(leftY, rightY) + 10;
       drawLine(separatorY);
 
-      // ------------- WORK DETAILS ----------------
+     
       let workY = separatorY + 20;
 
       doc.font(font.bold).fontSize(14).fillColor(colors.dark).text("Work Details", leftX, workY);
@@ -178,7 +177,7 @@ exports.generateBillPDF = async (
 
       workY += 28;
 
-      // ------------- SUMMARY ----------------
+    
       let summaryY = workY + 10;
       const sumX = pageWidth - pageMargin - 200;
 
@@ -193,7 +192,7 @@ exports.generateBillPDF = async (
       putSummary("Tax:", formatCurrency(0));
       putSummary("Total Bill:", formatCurrency(totalAmount), true);
 
-      // ------------- PAYMENT SECTION ------------
+   
       let payTop = Math.max(summaryY + 20, workY + 100);
 
       doc.font(font.bold).fontSize(12).fillColor(colors.dark).text("Payment", leftX, payTop);
@@ -202,7 +201,7 @@ exports.generateBillPDF = async (
       doc.font(font.regular).fontSize(11);
 
       if (paymentMethod === "upi") {
-        doc.text(`UPI ID: ${upiId}`, leftX, payTop);
+        doc.text(`UPI ID: ${ process.env.upi_id}`, leftX, payTop);
       } else {
         doc.text("Payment Method: Cash", leftX, payTop);
       }
@@ -224,12 +223,13 @@ exports.generateBillPDF = async (
 
       doc.font(font.regular).fontSize(10).fillColor(colors.muted)
         .text("Thank you for choosing Fast Response!", leftX, footerY + 14)
-        .text("Please clear your bill promptly.", leftX, footerY + 30);
-
-      // FINISH PDF
+        .text("Please clear your bill promptly.", leftX, footerY + 30)
+        .text("Please make confirmation from Technician .", leftX, footerY + 45);
+        
+     
       doc.end();
 
-      // Return file path when writing is done
+     
       stream.on("finish", () => resolve({ filePath }));
       stream.on("error", reject);
 
