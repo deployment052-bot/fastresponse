@@ -11,9 +11,12 @@ const generateToken = (user) => {
 };
 
 
-const sendVerificationOTP = async (data, email, name) => {
+const sendVerificationOTP = async (user, email, name) => {
   try {
-    const otp = data.otp; // OTP already generated outside
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    user.emailOTP = otp;
+    user.emailOTPExpires = Date.now() + 10 * 60 * 1000;
+    await user.save();
 
     const html = `
       <div style="font-family:Arial, text-align:center; background:#f9f9f9; padding:20px; border-radius:8px;">
@@ -30,23 +33,14 @@ const sendVerificationOTP = async (data, email, name) => {
     await sendEmail(email, "Your OTP Code - One Step Solution", html);
     console.log(`OTP ${otp} sent to ${email}`);
   } catch (err) {
-    console.error("Error sending OTP email:", err.message);
-    throw new Error("Failed to send OTP email.");
+    console.error(" Error sending OTP email:", err.message);
+    throw new Error("Failed to send OTP email. Please try again later.");
   }
 };
 
-
-exports.registeradmin = async (req, res) => {
+exports.registeradmin= async (req, res) => {
   try {
-    const {
-      firstName,
-      lastName,
-      email,
-      phone,
-      password,
-      confirmPassword,
-      designation
-    } = req.body;
+    const { firstName, lastName, email, phone, password, confirmPassword,designation } = req.body;
 
     if (!firstName || !lastName || !email || !phone || !password || !confirmPassword || !designation)
       return res.status(400).json({ message: "All fields are required." });
@@ -54,38 +48,55 @@ exports.registeradmin = async (req, res) => {
     if (password !== confirmPassword)
       return res.status(400).json({ message: "Passwords do not match." });
 
+    let user = await User.findOne({ email });
 
-    const existingUser = await User.findOne({ email });
-    if (existingUser)
-      return res.status(400).json({ message: "Email already registered." });
+ 
+    if (user && user.isEmailVerified) {
+      return res.status(400).json({ message: "Email already registered and verified." });
+    }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
- 
-    const { otp, token } = generateToken({
-      firstName,
-      lastName,
-      email,
-      phone,
-      password: hashedPassword,
-      role: "admin",
-      designation,
-    });
-
+    if (!user) {
+      user = new User({
+        firstName,
+        lastName,
+        email,
+        phone,
+        role: "admin",
+        password: hashedPassword,
+        designation
+      });
+    } else {
     
-    await sendVerificationOTP({ email, firstName, otp }, email, firstName);
+      user.set({
+        firstName,
+        lastName,
+        phone,
+        password: hashedPassword,
+        role: "admin",
+        designation
+      });
+    }
+
+   
+    user.specialization = undefined;
+    user.experience = undefined;
+    user.availability = undefined;
+    user.onDuty = undefined;
+    user.technicianStatus = undefined;
+
+    await sendVerificationOTP(user, email, firstName);
 
     res.status(200).json({
       message: "OTP sent to your email. Verify to complete registration.",
-      token, 
+      email,
     });
-
   } catch (err) {
-    console.error("Admin registration error:", err.message);
+    console.error(" admin registration error:", err.message);
     res.status(500).json({ message: "Registration failed. Try again later." });
   }
 };
-
 
 exports.registerClient = async (req, res) => {
   try {
@@ -97,35 +108,52 @@ exports.registerClient = async (req, res) => {
     if (password !== confirmPassword)
       return res.status(400).json({ message: "Passwords do not match." });
 
-    // ✅ DB check ONLY
-    const existingUser = await User.findOne({ email });
-    if (existingUser)
-      return res.status(400).json({ message: "Email already registered." });
+    let user = await User.findOne({ email });
+
+  
+    if (user && user.isEmailVerified) {
+      return res.status(400).json({ message: "Email already registered and verified." });
+    }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // ✅ create OTP + token (NO DB SAVE)
-    const { otp, token } = generateToken({
-      firstName,
-      lastName,
-      email,
-      phone,
-      password: hashedPassword,
-      role: "client",
-    });
+    if (!user) {
+      user = new User({
+        firstName,
+        lastName,
+        email,
+        phone,
+        role: "client",
+        password: hashedPassword,
+      });
+    } else {
+ 
+      user.set({
+        firstName,
+        lastName,
+        phone,
+        password: hashedPassword,
+        role: "client",
+      });
+    }
 
-    await sendVerificationOTP({ email, firstName, otp }, email, firstName);
+    user.specialization = undefined;
+    user.experience = undefined;
+    user.availability = undefined;
+    user.onDuty = undefined;
+    user.technicianStatus = undefined;
+
+    await sendVerificationOTP(user, email, firstName);
 
     res.status(200).json({
       message: "OTP sent to your email. Verify to complete registration.",
-      token,
+      email,
     });
   } catch (err) {
     console.error("Client registration error:", err.message);
     res.status(500).json({ message: "Registration failed. Try again later." });
   }
 };
-
 
 exports.registerTechnician = async (req, res) => {
   try {
@@ -148,38 +176,58 @@ exports.registerTechnician = async (req, res) => {
       return res.status(400).json({ message: "Passwords do not match." });
 
     if (!specialization || !experience)
-      return res.status(400).json({ message: "Specialization and experience are required." });
+      return res
+        .status(400)
+        .json({ message: "Specialization and experience are required." });
 
-    const existingUser = await User.findOne({ email });
-    if (existingUser)
-      return res.status(400).json({ message: "Email already registered." });
+    let user = await User.findOne({ email });
+
+    if (user && user.isEmailVerified)
+      return res.status(400).json({ message: "Email already registered and verified." });
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const specArray = Array.isArray(specialization)
-      ? specialization.map(s => s.trim().toLowerCase())
-      : specialization.split(",").map(s => s.trim().toLowerCase());
+    if (!user) {
+      user = new User({
+        firstName,
+        lastName,
+        email,
+        phone,
+        password: hashedPassword,
+        role: "technician",
+        specialization: Array.isArray(specialization)
+          ? specialization.map((s) => s.trim().toLowerCase())
+          : specialization.split(",").map((s) => s.trim().toLowerCase()),
+        experience,
+        location,
+        availability: true,
+        onDuty: false,
+        technicianStatus: "available",
+      });
+    } else {
+    
+      user.set({
+        firstName,
+        lastName,
+        phone,
+        password: hashedPassword,
+        specialization: Array.isArray(specialization)
+          ? specialization.map((s) => s.trim().toLowerCase())
+          : specialization.split(",").map((s) => s.trim().toLowerCase()),
+        experience,
+        location,
+        availability: true,
+        onDuty: false,
+        technicianStatus: "available",
+        role: "technician",
+      });
+    }
 
-    const { otp, token } = generateToken({
-      firstName,
-      lastName,
-      email,
-      phone,
-      password: hashedPassword,
-      role: "technician",
-      specialization: specArray,
-      experience,
-      location,
-      availability: true,
-      onDuty: false,
-      technicianStatus: "available",
-    });
-
-    await sendVerificationOTP({ email, firstName, otp }, email, firstName);
+    await sendVerificationOTP(user, email, firstName);
 
     res.status(200).json({
       message: "Technician registration started. OTP sent to your email.",
-      token,
+      email,
     });
   } catch (err) {
     console.error("Technician registration error:", err.message);
@@ -188,43 +236,35 @@ exports.registerTechnician = async (req, res) => {
 };
 
 
-
 exports.verifyEmail = async (req, res) => {
   try {
-    const { token, otp } = req.body;
+    const { email, otp } = req.body;
+    if (!email || !otp)
+      return res.status(400).json({ message: "Email and OTP are required." });
 
-    if (!token || !otp)
-      return res.status(400).json({ message: "Token and OTP required." });
+    const user = await User.findOne({ email });
+    if (!user)
+      return res.status(400).json({ message: "No user found with this email." });
 
-    let data;
-    try {
-      data = jwt.verify(token, process.env.JWT_SECRET);
-    } catch {
-      return res.status(400).json({ message: "Invalid or expired token." });
-    }
+    if (!user.emailOTP || !user.emailOTPExpires)
+      return res.status(400).json({ message: "No OTP request found. Please request a new OTP." });
 
-    if (data.otp !== otp)
+    if (Date.now() > user.emailOTPExpires)
+      return res.status(400).json({ message: "OTP expired. Please request a new OTP." });
+
+    if (user.emailOTP !== otp)
       return res.status(400).json({ message: "Invalid OTP." });
 
-   
-    const user = new User({
-      ...data,
-      isEmailVerified: true,
-    });
-
-    delete user.otp;
-
+    user.isEmailVerified = true;
+ 
     await user.save();
 
-    res.status(200).json({
-      message: "Email verified successfully! You can now log in.",
-    });
+    res.status(200).json({ message: "Email verified successfully! You can now log in." });
   } catch (err) {
-    console.error("Verify email error:", err);
-    res.status(500).json({ message: "Server error." });
+    console.error("Email verification error:", err);
+    res.status(500).json({ message: "Server error during verification." });
   }
 };
-
 
 exports.resendOTP = async (req, res) => {
   try {
