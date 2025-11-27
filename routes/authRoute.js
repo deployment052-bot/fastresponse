@@ -40,16 +40,10 @@ router.get(
   passport.authenticate("google", { failureRedirect: "/auth/failure" }),
   (req, res) => {
     try {
-    
-      const user = req.user;
+      const { token } = req.user;
+      const frontend = process.env.FRONTEND_URL || "https://whimsical-fenglisu-4a7b67.netlify.app";
 
-      const token = jwt.sign(
-        { id: user._id, role: user.role },
-        process.env.JWT_SECRET,
-        { expiresIn: "7d" }
-      );
-
-      return res.redirect(`${FRONTEND_URL}/?token=${token}`);
+      return res.redirect(`https://whimsical-fenglisu-4a7b67.netlify.app/?token=${token}`);
     } catch (err) {
       console.error("Google Callback Error:", err);
       res.status(500).json({ message: "Server error during Google login" });
