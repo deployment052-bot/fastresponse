@@ -21,54 +21,31 @@ router.post("/verify-otp", verifyEmail);
 router.get("/profile",protect, getProfile);
 
 // -------------------- GOOGLE LOGIN (CLIENT ONLY) --------------------
-router.get("/google",
+router.get(
+  "/google",
   (req, res, next) => {
-    const role = req.query.role || "client";
-    if (role !== "client") {
-      return res.status(403).json({ message: "Google login allowed only for clients" });
+    if ((req.query.role || "client") !== "client") {
+      return res.status(403).json({ message: "Only client allowed" });
     }
     next();
   },
-  passport.authenticate("google", { scope: ["profile", "email"] })
+  passport.authenticate("google", { scope: ["email", "profile"] })
 );
 
 router.get(
   "/google/callback",
   passport.authenticate("google", { failureRedirect: "/auth/failure" }),
-  async (req, res) => {
-    try {
-      const googleUser = req.user;
+  (req, res) => {
+    const token = jwt.sign(
+      { id: req.user._id, role: req.user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
 
-      let user = await User.findOne({ email: googleUser.emails?.[0]?.value });
+    const frontend =
+      process.env.FRONTEND_URL || "http://localhost:5173";
 
-      if (!user) {
-        user = await User.create({
-          googleId: googleUser.id,
-          firstName: googleUser.name?.givenName || "",
-          lastName: googleUser.name?.familyName || "",
-          email: googleUser.emails?.[0]?.value || "",
-          avatar: googleUser.photos?.[0]?.value || "",
-          role: "client",
-        });
-      } else {
-        user.avatar = googleUser.photos?.[0]?.value || user.avatar;
-        user.googleId = googleUser.id;
-        await user.save();
-      }
-
-      const token = jwt.sign(
-        { id: user._id, role: user.role },
-        process.env.JWT_SECRET,
-        { expiresIn: "7d" }
-      );
-
-  
-      const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173"  || "whimsical-fenglisu-4a7b67.netlify.app";
-      return res.redirect(`${frontendUrl}/?token=${token}`);
-    } catch (err) {
-      console.error("Google Callback Error:", err);
-      res.status(500).json({ message: "Server error during Google login" });
-    }
+    res.redirect(`${frontend}/?token=${token}`);
   }
 );
 router.get(
