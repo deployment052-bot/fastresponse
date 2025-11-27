@@ -40,12 +40,10 @@ router.get(
   passport.authenticate("google", { failureRedirect: "/auth/failure" }),
   (req, res) => {
     try {
-      if (req.user.role !== "client") {
-        
-        return res.redirect(`${FRONTEND_URL}/login?error=only-clients-allowed`);
-      }
       const token = req.user.token;
-      return res.redirect(`${FRONTEND_URL}/client?token=${token}`);
+
+      
+      return res.redirect(`${FRONTEND_URL}/?token=${token}`);
     } catch (err) {
       console.error("Google Callback Error:", err);
       return res.status(500).json({ message: "Server error during Google login" });
