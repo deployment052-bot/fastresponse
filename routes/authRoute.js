@@ -41,7 +41,13 @@ router.get(
   (req, res) => {
     try {
     
-      const { token } = req.user;
+      const user = req.user;
+
+      const token = jwt.sign(
+        { id: user._id, role: user.role },
+        process.env.JWT_SECRET,
+        { expiresIn: "7d" }
+      );
 
       return res.redirect(`${FRONTEND_URL}/?token=${token}`);
     } catch (err) {
@@ -50,6 +56,7 @@ router.get(
     }
   }
 );
+
 
 
 router.get(
