@@ -6,7 +6,7 @@ const User = require("../model/user");
 const BASE_URL =
   process.env.BACKEND_URL?.replace(/\/$/, "") || "http://localhost:5000";
 
-// ================== GOOGLE STRATEGY ==================
+/* ================= GOOGLE STRATEGY ================= */
 passport.use(
   new GoogleStrategy(
     {
@@ -17,7 +17,7 @@ passport.use(
     async (accessToken, refreshToken, profile, done) => {
       try {
         if (!profile.emails?.length) {
-          return done(new Error("Google did not return email"), null);
+          return done(new Error("No email from Google"), null);
         }
 
         const email = profile.emails[0].value;
@@ -31,10 +31,8 @@ passport.use(
             lastName: profile.name?.familyName || "",
             email,
             avatar: profile.photos?.[0]?.value || "",
-            phone: "N/A",
-            password: "google-oauth",
+            authProvider: "google",
             role: "client",
-            location: "N/A",
           });
         } else {
           user.googleId = profile.id;
@@ -51,24 +49,21 @@ passport.use(
   )
 );
 
-// ================== FACEBOOK STRATEGY ==================
+/* ================= FACEBOOK STRATEGY ================= */
 passport.use(
   new FacebookStrategy(
     {
       clientID: process.env.FACEBOOK_CLIENT_ID,
       clientSecret: process.env.FACEBOOK_CLIENT_SECRET,
       callbackURL: `${BASE_URL}/auth/facebook/callback`,
-      profileFields: ["id", "displayName", "photos", "email", "name"],
+      profileFields: ["id", "emails", "name", "photos"],
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
         const email =
-          profile.emails?.[0]?.value ||
-          `fb_${profile.id}@facebook.com`;
+          profile.emails?.[0]?.value || `fb_${profile.id}@facebook.com`;
 
-        let user = await User.findOne({
-          $or: [{ email }, { facebookId: profile.id }],
-        });
+        let user = await User.findOne({ email });
 
         if (!user) {
           user = await User.create({
@@ -77,10 +72,8 @@ passport.use(
             lastName: profile.name?.familyName || "",
             email,
             avatar: profile.photos?.[0]?.value || "",
-            phone: "N/A",
-            password: "facebook-oauth",
+            authProvider: "facebook",
             role: "client",
-            location: "N/A",
           });
         } else {
           user.facebookId = profile.id;
@@ -97,18 +90,7 @@ passport.use(
   )
 );
 
-// ================== SESSION ==================
-passport.serializeUser((user, done) => {
-  done(null, user.id);
-});
-
-passport.deserializeUser(async (id, done) => {
-  try {
-    const user = await User.findById(id);
-    done(null, user);
-  } catch (err) {
-    done(err, null);
-  }
-});
+passport.serializeUser((user, done) => done(null, user));
+passport.deserializeUser((obj, done) => done(null, obj));
 
 module.exports = passport;
