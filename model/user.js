@@ -61,7 +61,7 @@ designation:{
 
  
   isEmailVerified: { type: Boolean, default: false },
-  emailOTP: String,
+  // emailOTP: String,
   emailOTPExpires: Date,
   phoneOTP: String,
   phoneOTPExpires: Date,
