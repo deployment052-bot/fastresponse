@@ -38,7 +38,7 @@ router.get(
   (req, res) => {
     try {
       const token = req.user.token;
-      return res.redirect(`${FRONTEND_URL}/?authToken=${token}`);
+      return res.redirect(`${FRONTEND_URL}/?token=${token}`);
     } catch (err) {
       console.error("Google Callback Error:", err);
       return res.status(500).json({ message: "Server error during Google login" });
