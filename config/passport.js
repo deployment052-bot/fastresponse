@@ -1,6 +1,7 @@
 const passport = require("passport");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const FacebookStrategy = require("passport-facebook").Strategy;
+const jwt = require("jsonwebtoken");
 const User = require("../model/user");
 
 const BASE_URL =
@@ -40,7 +41,16 @@ passport.use(
           await user.save();
         }
 
-        return done(null, user);
+        // 🔥 Generate JWT TOKEN
+        const token = jwt.sign(
+          { id: user._id, role: user.role },
+          process.env.JWT_SECRET,
+          { expiresIn: "7d" }
+        );
+
+        // Pass token to callback
+        return done(null, { ...user.toObject(), token });
+
       } catch (err) {
         console.error("Google Strategy Error:", err);
         return done(err, null);
@@ -81,7 +91,15 @@ passport.use(
           await user.save();
         }
 
-        return done(null, user);
+        // 🔥 Generate JWT TOKEN for facebook too
+        const token = jwt.sign(
+          { id: user._id, role: user.role },
+          process.env.JWT_SECRET,
+          { expiresIn: "7d" }
+        );
+
+        return done(null, { ...user.toObject(), token });
+
       } catch (err) {
         console.error("Facebook Strategy Error:", err);
         return done(err, null);
