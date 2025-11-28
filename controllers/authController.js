@@ -111,11 +111,12 @@ exports.registerClient = async (req, res) => {
 
     let user = await User.findOne({ email });
 
-  
+    // If already verified
     if (user && user.isEmailVerified) {
       return res.status(400).json({ message: "Email already registered and verified." });
     }
 
+    // Hash password if new or updating
     const hashedPassword = await bcrypt.hash(password, 10);
 
     if (!user) {
@@ -128,7 +129,7 @@ exports.registerClient = async (req, res) => {
         password: hashedPassword,
       });
     } else {
- 
+      // Update existing unverified record
       user.set({
         firstName,
         lastName,
@@ -138,6 +139,7 @@ exports.registerClient = async (req, res) => {
       });
     }
 
+    // Clear technician fields if exist
     user.specialization = undefined;
     user.experience = undefined;
     user.availability = undefined;
@@ -151,13 +153,14 @@ exports.registerClient = async (req, res) => {
       email,
     });
   } catch (err) {
-    console.error("Client registration error:", err.message);
+    console.error("❌ Client registration error:", err.message);
     res.status(500).json({ message: "Registration failed. Try again later." });
   }
 };
 
 
 
+// Helper to get coordinates from location string
 async function getCoordinates(location) {
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location)}`;
@@ -205,7 +208,7 @@ exports.registerTechnician = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-   
+    // Get coordinates automatically from location
     const coordinates = await getCoordinates(location);
     if (!coordinates) return res.status(400).json({ message: "Could not fetch coordinates for this location." });
 
@@ -224,7 +227,7 @@ exports.registerTechnician = async (req, res) => {
         specialization: normalizedSpecialization,
         experience,
         location,
-        coordinates, 
+        coordinates, // lat/lng saved automatically
         availability: true,
         onDuty: false,
         technicianStatus: "available",
@@ -246,7 +249,7 @@ exports.registerTechnician = async (req, res) => {
       });
     }
 
-    await user.save(); 
+    await user.save(); // save to DB
     await sendVerificationOTP(user, email, firstName);
 
     res.status(200).json({
@@ -282,7 +285,8 @@ exports.verifyEmail = async (req, res) => {
       return res.status(400).json({ message: "Invalid OTP." });
 
     user.isEmailVerified = true;
- 
+    user.emailOTP = undefined;
+    user.emailOTPExpires = undefined;
     await user.save();
 
     res.status(200).json({ message: "Email verified successfully! You can now log in." });
