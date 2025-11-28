@@ -16,7 +16,7 @@ const {
 const router = express.Router();
 
 router.post("/client-register", registerClient);
-router.post("/technician-register", protect, registerTechnician);
+router.post("/technician-register", registerTechnician);
 router.post("/login", login);
 router.post("/verify-otp", verifyEmail);
 router.get("/profile",protect, getProfile);
