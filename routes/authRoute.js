@@ -42,14 +42,14 @@ router.get(
 
       if (!token) {
         console.log("Google Login Failed: Token Missing");
-        return res.redirect(`${FRONTEND_URL}/auth/error`);
+        return res.redirect(`${FRONTEND_URL}/error`);
       }
 
-      return res.redirect(`${FRONTEND_URL}/auth/?token=${token}`);
+      return res.redirect(`${FRONTEND_URL}/?token=${token}`);
 
     } catch (err) {
       console.error("Google Callback Error:", err);
-      return res.redirect(`${FRONTEND_URL}/auth/error`);
+      return res.redirect(`${FRONTEND_URL}/error`);
     }
   }
 );
