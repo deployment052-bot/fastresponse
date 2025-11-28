@@ -7,7 +7,8 @@ const User = require("../model/user");
 const BASE_URL =
   process.env.BACKEND_URL?.replace(/\/$/, "") || "http://localhost:5000";
 
-/* ================= GOOGLE STRATEGY ================= */
+
+
 passport.use(
   new GoogleStrategy(
     {
@@ -34,21 +35,25 @@ passport.use(
             avatar: profile.photos?.[0]?.value || "",
             authProvider: "google",
             role: "client",
+            googleAccessToken: accessToken,
+            googleRefreshToken: refreshToken,
           });
         } else {
           user.googleId = profile.id;
           user.avatar = profile.photos?.[0]?.value || user.avatar;
+          user.googleAccessToken = accessToken;
+          user.googleRefreshToken = refreshToken;
           await user.save();
         }
 
-        // 🔥 Generate JWT TOKEN
+        // Create backend JWT
         const token = jwt.sign(
           { id: user._id, role: user.role },
           process.env.JWT_SECRET,
           { expiresIn: "7d" }
         );
 
-        // Pass token to callback
+        // Pass token along with user object
         return done(null, { ...user.toObject(), token });
 
       } catch (err) {
@@ -58,6 +63,9 @@ passport.use(
     }
   )
 );
+
+
+
 
 /* ================= FACEBOOK STRATEGY ================= */
 passport.use(
