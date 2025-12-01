@@ -265,13 +265,19 @@ exports.getOpenIssues = async (req, res) => {
         if (issue.status === "open") {
           issuesList.push({
             issueId: issue._id,
+
             message: issue.message,
+
             raisedBy: issue.raisedBy,
+           
             raisedAt: issue.raisedAt,
+          
             workId: work._id,
+
             workStatus: work.status,
             serviceType: work.serviceType,
             client: work.client,
+             issueType:issue.issueType,
             technician: work.assignedTechnician
           });
         }
@@ -350,3 +356,12 @@ exports.getAllIssues = async (req, res) => {
     });
   }
 };
+
+// exports.getissuebyId=async (req,res)=>{
+//   try{
+//     const {workId}=req.body;
+//      const 
+//   }catch{
+
+//   }
+// }
