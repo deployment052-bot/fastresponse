@@ -6,10 +6,18 @@ const sendEmail = require("../utils/sendemail");
 
 
 const generateToken = (user) => {
-  return jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
-    expiresIn: "7d",
-  });
+  return jwt.sign(
+    {
+      id: user._id,
+      email: user.email,
+      name: user.name,
+      role: user.role 
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: "7d" }
+  );
 };
+
 
 
 const sendVerificationOTP = async (user, email, name) => {
@@ -208,7 +216,7 @@ exports.registerTechnician = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Get coordinates automatically from location
+    
     const coordinates = await getCoordinates(location);
     if (!coordinates) return res.status(400).json({ message: "Could not fetch coordinates for this location." });
 
