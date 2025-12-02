@@ -20,7 +20,7 @@ if (!fs.existsSync(invoicesFolder)) {
 
 exports.completeWorkAndGenerateBill = async (req, res) => {
   try {
-    const { workId, serviceCharge , paymentMethod = "upi", upiId } = req.body;
+    const { workId, serviceCharge , paymentMethod = "upi", upiId,upiApp } = req.body;
     const technicianId = req.user._id;
 
   const paymentId = "pay_" + Date.now();
@@ -59,6 +59,29 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
 
   
     const totalAmount = Number(work.serviceCharge) ;
+let upiIntent = null;
+       let qrBuffer = null;
+    if (paymentMethod === "upi") {
+      const companyUpi = upiId || process.env.upi_id; // your company's UPI ID
+      const companyName = encodeURIComponent(
+        process.env.COMPANY_NAME || "FAST RESPONSE"
+      );
+      const description = encodeURIComponent(
+        `Service Bill #${work.token || work._id}`
+      );
+
+      // Auto-fill amount + company name
+      upiIntent =
+        `upi://pay?pa=${companyUpi}` +
+        `&pn=${companyName}` +
+        `&am=${totalAmount}` +
+        `&cu=INR` +
+        `&tn=${description}`;
+
+      // Generate QR code
+      const qr = await QRCode.toDataURL(upiIntent);
+      qrBuffer = Buffer.from(qr.split(",")[1], "base64");
+    }
 
  
     const billData = {
@@ -68,10 +91,11 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
       serviceCharge: totalAmount,
       totalAmount,
       paymentMethod,
+       upiIntent,
       status: "sent",
     };
 
-    let qrBuffer = null;
+ 
     let clickableUPI = null;
     let upiUri = null;
 
@@ -157,27 +181,38 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
 
     await sendEmail(client.email, "Your Bill & Payment Details", emailBody, attachments);
 
-    // ----------- UPDATE WORK STATUS -----------
+   
     work.status = "completed";
     work.completedAt = new Date();
     work.billId = bill._id;
     await work.save();
 
-    return res.status(200).json({
-      message: "Work completed successfully",
-      afterphoto: finalPhotoUrl,
-      bill,
-      upiUri,
-      clickableUPI,
-      expiresAt,
-    });
+ return res.status(200).json({
+  success: true,
+  bill: {
+    workId: work._id,
+    serviceType: work.serviceType,
+    baseCharge: work.serviceCharge,
+    extraCharges: work.extraCharges || 0,
+    tax: work.tax || 0,
+    totalAmount: totalAmount,
+  },
+  payment: {
+    upiUri,
+    clickableUPI,
+    upiApp,  
+    qrImage: billData.qrImage,
+    expiresAt
+  },
+  afterPhoto: finalPhotoUrl
+});
+
 
   } catch (err) {
     console.error("COMPLETE WORK ERROR:", err);
     return res.status(500).json({ message: "Error completing work", error: err.message });
   }
 };
-
 
 // abhi hum ye code use kr rahe h technician k work count k liye 
 exports.getTechnicianSummary1 = async (req, res) => {
