@@ -610,13 +610,11 @@ exports.getClientWorkStatus = async (req, res) => {
     const clientId = req.user._id;
 
     const work = await Work.findById(workId)
-      .populate("assignedTechnician", "name phone email technicianStatus coordinates lastLocationUpdate")
-      .populate("client", "name phone email coordinates");
+      .populate("assignedTechnician", "firstName lastName phone email technicianStatus coordinates lastLocationUpdate")
+      .populate("client", "firstName lastName phone email")
+      .populate("billId"); // Populate billId so we can read UPI link
 
-    if (!work) {
-      return res.status(404).json({ message: "Work not found" });
-    }
-
+    if (!work) return res.status(404).json({ message: "Work not found" });
     if (String(work.client._id) !== String(clientId)) {
       return res.status(403).json({ message: "Not authorized to view this work" });
     }
@@ -624,7 +622,8 @@ exports.getClientWorkStatus = async (req, res) => {
     const technician = work.assignedTechnician;
     let eta = "ETA not available";
 
-    if (technician?.coordinates?.lat && technician?.coordinates?.lng && work.coordinates?.lat && work.coordinates?.lng) {
+    if (technician?.coordinates?.lat && technician?.coordinates?.lng &&
+        work.coordinates?.lat && work.coordinates?.lng) {
       try {
         const orsKey = process.env.ORS_KEY;
         const url = `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${orsKey}&start=${technician.coordinates.lng},${technician.coordinates.lat}&end=${work.coordinates.lng},${work.coordinates.lat}`;
@@ -642,41 +641,47 @@ exports.getClientWorkStatus = async (req, res) => {
       token: work.token,
       serviceType: work.serviceType,
       specialization: work.specialization,
-      serviceCharge:work.serviceCharge,
+      serviceCharge: work.serviceCharge,
+      totalAmount: work.totalAmount,
       description: work.description,
       location: work.location,
       status: work.status,
       createdAt: work.createdAt,
       startedAt: work.startedAt,
       completedAt: work.completedAt,
+      afterPhoto: work.afterphoto,
       client: {
         name: work.client.name,
         phone: work.client.phone,
         email: work.client.email,
       },
-      technician: technician
-        ? {
-            name: technician.name,
-            phone: technician.phone,
-            email: technician.email,
-            status: technician.technicianStatus,
-            coordinates: technician.coordinates,
-            lastUpdate: technician.lastLocationUpdate,
-          }
-        : null,
+      technician: technician ? {
+        name: technician.firstName,
+        phone: technician.phone,
+        email: technician.email,
+        status: technician.technicianStatus,
+        coordinates: technician.coordinates,
+        lastUpdate: technician.lastLocationUpdate,
+      } : null,
       eta,
+      payment: work.billId ? {
+        upiUri: work.billId.upiUri || null,
+        clickableUPI: work.billId.clickableUPI || null,
+        qrImage: work.billId.qrImage || null,
+        expiresAt: work.billId.expiresAt || null
+      } : null
     };
 
-    res.status(200).json({
+    return res.status(200).json({
       message: "Work status fetched successfully",
-      workStatus,
+      workStatus
     });
+
   } catch (err) {
     console.error("Client Work Status Error:", err);
-    res.status(500).json({ message: "Server error" });
+    return res.status(500).json({ message: "Server error" });
   }
 };
-
 exports.reportWorkIssue = async (req, res) => {
   try {
     const { workId, issueType, remarks } = req.body;
