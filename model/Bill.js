@@ -58,7 +58,9 @@ const BillSchema = new Schema(
       enum: ["cash", "upi", "not_selected"],
       default: "not_selected",
     },
-
+ upiUri: String,         
+  clickableUPI: String,  
+  qrImage: String,    
     
     paymentInfo: {
       type: Schema.Types.Mixed,
