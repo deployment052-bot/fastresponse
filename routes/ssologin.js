@@ -64,7 +64,7 @@ router.get("/ims-stock", async (req, res) => {
     const imsToken = req.headers["x-ims-token"];
     if (!imsToken) return res.status(401).json({ message: "IMS token missing" });
 
-    const response = await axios.get(`${process.env.IMS_BASE_URL}/api/stock`, {
+    const response = await axios.get(`${process.env.IMS_BASE_URL}/api/stock/stock-summary`, {
       headers: { Authorization: `Bearer ${imsToken}` },
     });
 
