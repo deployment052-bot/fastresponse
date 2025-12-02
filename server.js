@@ -6,8 +6,8 @@ const passport = require("passport");
 const session = require("express-session");
 const http = require("http");
 const { Server } = require("socket.io");
+require("dotenv").config(); 
 
-dotenv.config();
 const app = express();
 
 
@@ -70,7 +70,7 @@ app.use('/otp', require('./routes/otpRoutes'));
 app.use('/forget', require('./routes/forgotpassword'));
 app.use('/service', require('./routes/service'));
 app.use('/technicaian', require('./routes/technicianRoutes'));
-
+app.use('/ims',require('./routes/ssologin'))
 mongoose.connect(process.env.MONGO_URL)
   .then(() => console.log(' MongoDB connected'))
   .catch(err => console.log('❌ MongoDB connection error:', err));
@@ -86,5 +86,5 @@ app.use((err, req, res, next) => {
 });
 
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT ;
 server.listen(PORT, () => console.log(` Server running with Socket.IO on port ${PORT}`));
