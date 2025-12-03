@@ -365,3 +365,115 @@ exports.getAllIssues = async (req, res) => {
 
 //   }
 // }
+exports.getPartsPendingRequests = async (req, res) => {
+  try {
+    const works = await Work.find({
+      "issues": {
+        $elemMatch: {
+          issueType: "need_parts",
+          "parts.status": "pending_fastresponse"
+        }
+      }
+    })
+      .populate("client", "firstName lastName phone location")
+      .populate("assignedTechnician", "firstName lastName phone");
+
+    return res.status(200).json({ success: true, works });
+  } catch (error) {
+    console.error("Error fetching pending parts:", error);
+    return res.status(500).json({ message: "Failed to fetch pending parts requests", error: error.message });
+  }
+};
+
+
+
+exports.updatePartStatus = async (req, res) => {
+  try {
+    const { workId, issueId, partId, action } = req.body;
+
+    const newStatus = action === "approve" ? "fr_approved" : "fr_rejected";
+
+    const work = await Work.findOneAndUpdate(
+      {
+        _id: workId,
+        "issues._id": issueId,
+        "issues.parts._id": partId
+      },
+      {
+        $set: {
+          "issues.$[i].parts.$[p].status": newStatus,
+          "issues.$[i].parts.$[p].updatedOn": new Date()
+        }
+      },
+      {
+        arrayFilters: [
+          { "i._id": issueId },
+          { "p._id": partId }
+        ],
+        new: true
+      }
+    );
+
+    if (!work) {
+      return res.status(404).json({ message: "Part not found" });
+    }
+
+    const issue = work.issues.id(issueId);
+
+    // Check if any FR pending part exists
+    const stillPending = issue.parts.some(
+      p => p.status === "pending_fastresponse"
+    );
+
+    // When all FR approvals done → Send to IMS
+    if (!stillPending) {
+      work.status = "pending_ims";
+      await work.save();
+
+      console.log("🔄 Sending approved parts to IMS...");
+
+      const imsToken = jwt.sign(
+        { system: "FR Admin" },
+        process.env.IMS_JWT_SECRET,
+        { expiresIn: "1d" }
+      );
+
+      // Filter only approved parts
+      const imsRequests = issue.parts
+        .filter(p => p.status === "fr_approved")
+        .map(p => ({
+          itemName: p.itemName,
+          quantity: p.quantity,
+          requiredDate: p.requiredDate || new Date(),
+          location: work.location || "",
+          workRefId: workId,
+          partRefId: p._id
+        }));
+
+      const imsBaseUrl = process.env.IMS_BASE_URL;
+
+      await Promise.all(
+        imsRequests.map(request =>
+          axios.post(`${imsBaseUrl}/api/request/from-fr`, request, {
+            headers: { Authorization: `Bearer ${imsToken}` }
+          })
+        )
+      );
+
+      console.log("📦 IMS Request Sent Successfully!");
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Part ${newStatus}`,
+      work
+    });
+
+  } catch (error) {
+    console.error("Update Part Status Error:", error);
+    return res.status(500).json({
+      message: "Failed to update part status",
+      error: error.message
+    });
+  }
+};
