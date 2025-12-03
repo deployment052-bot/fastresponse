@@ -18,4 +18,5 @@ router.post("/approve-job", protect, authorize('technician'),technicianControlle
 
 router.post("/issueraise",technicianController.raiseWorkIssue)
 router.post("/payment", protect,authorize('technician') ,technicianController.confirmPayment);
+router.post('/needpartssubmit',technicianController.needPartRequest)
 module.exports = router;
