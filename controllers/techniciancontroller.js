@@ -584,3 +584,87 @@ exports.raiseWorkIssue = async (req, res) => {
     res.status(500).json({ message: "Failed to raise issue" });
   }
 };
+exports.needPartRequest = async (req, res) => {
+  try {
+    const { workId, parts } = req.body; 
+    const technicianId = req.user && req.user._id ? req.user._id : req.body.technicianId;
+
+    if (!parts || !Array.isArray(parts) || parts.length === 0) {
+      return res.status(400).json({ message: "Parts details are required" });
+    }
+
+    const work = await Work.findById(workId);
+    if (!work) return res.status(404).json({ message: "Work not found" });
+
+   
+    let latestIssue = work.issues.filter(i => i.issueType === "need_parts" && i.status === "open").slice(-1)[0];
+
+    if (!latestIssue) {
+      latestIssue = {
+        issueType: "need_parts",
+        remarks: "",
+        raisedBy: technicianId,
+        raisedAt: new Date(),
+        status: "open",
+        parts: []
+      };
+      work.issues.push(latestIssue);
+    }
+
+const partDetails = parts.map(p => ({
+  itemName: p.itemName,
+  quantity: p.quantity,
+  unit: p.unit || "",
+  requiredDate: p.requiredDate ? new Date(p.requiredDate) : null,
+  deliveryAddress: work.location, 
+  requestedBy: technicianId,
+  requestedOn: new Date(),
+  status: "pending_fastresponse"
+}));
+
+    latestIssue.parts = [...(latestIssue.parts || []), ...partDetails];
+
+   
+    work.status = "inprogress";
+
+    await work.save();
+
+    return res.status(201).json({
+      success: true,
+      message: "Parts requested successfully",
+      parts: partDetails,
+      work
+    });
+
+  } catch (error) {
+    console.error("Add Part Request Error:", error);
+    return res.status(500).json({
+      message: "Failed to add part request",
+      error: error.message,
+      stack: error.stack
+    });
+  }
+};
+
+
+exports.getMyPartsRequests = async (req, res) => {
+  try {
+    const technicianId = req.user._id;
+
+    const works = await Work.find({
+      "issues": {
+        $elemMatch: {
+          issueType: "need_parts",
+          "parts.requestedBy": technicianId 
+        }
+      }
+    })
+      .populate("client", "firstName lastName phone location")
+      .populate("assignedTechnician", "firstName lastName phone");
+
+    return res.status(200).json({ success: true, works });
+  } catch (error) {
+    console.error("Error fetching technician parts requests:", error);
+    return res.status(500).json({ message: "Failed to fetch your parts requests", error: error.message });
+  }
+};
