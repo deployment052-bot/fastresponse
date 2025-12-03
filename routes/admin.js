@@ -3,7 +3,7 @@ const { protect , authorize } = require("../middelware/authMiddelware");
 const router = express.Router();
 const {
 
-  getTechnicianWorkForAdmin,getAllTechniciansForAdmin,getAllClientForAdmin,getclientWorkForAdmin,getAllWorkAdmin,resolveWorkIssue,getOpenIssues,getAllIssues
+  getTechnicianWorkForAdmin,getAllTechniciansForAdmin,getAllClientForAdmin,getclientWorkForAdmin,getAllWorkAdmin,resolveWorkIssue,getOpenIssues,getAllIssues,getPartsPendingRequests,updatePartStatus
 } = require("../controllers/admincontrooler");
 // const { getAllTechnicianWorks } = require("../controllers/techniciancontroller");
 
@@ -17,4 +17,11 @@ router.get('/getAllWorkadmin',protect,authorize('admin'),getAllWorkAdmin)
 router.get('/getnewissue',protect,authorize('admin'),getOpenIssues)// ye wala route jb tk koi issue open h wo data dega
 
 router.get('/getallissue',protect,authorize('admin'),getAllIssues)// ye wala all route ko dikhayega 
+
+
+//after this every route is for to the making the matairial 
+router.get('/getneedpartsrequest',protect,authorize('admin'),getPartsPendingRequests) // for to fetching the needparts issue
+router.put('/approverejectbyadmin',protect,authorize('admin'),updatePartStatus) // for to make action on the needpart request
+
+
 module.exports = router;
