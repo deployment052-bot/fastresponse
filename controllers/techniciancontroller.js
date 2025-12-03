@@ -587,7 +587,7 @@ exports.raiseWorkIssue = async (req, res) => {
 exports.needPartRequest = async (req, res) => {
   try {
     const { workId, parts } = req.body; 
-    const technicianId = req.user?._id || req.body.technicianId;
+    const technicianId = req.user && req.user._id ? req.user._id : req.body.technicianId;
 
     if (!parts || !Array.isArray(parts) || parts.length === 0) {
       return res.status(400).json({ message: "Parts details are required" });
@@ -596,42 +596,36 @@ exports.needPartRequest = async (req, res) => {
     const work = await Work.findById(workId);
     if (!work) return res.status(404).json({ message: "Work not found" });
 
-    // 🔹 Find latest open "need_parts" issue
-    let latestIssue = work.issues.filter(
-      i => i.issueType === "need_parts" && i.status === "open"
-    ).slice(-1)[0];
+   
+    let latestIssue = work.issues.filter(i => i.issueType === "need_parts" && i.status === "open").slice(-1)[0];
 
-    // 🔹 If no issue, create a proper subdocument
     if (!latestIssue) {
-      latestIssue = work.issues.create({
+      latestIssue = {
         issueType: "need_parts",
         remarks: "",
         raisedBy: technicianId,
         raisedAt: new Date(),
         status: "open",
         parts: []
-      });
+      };
       work.issues.push(latestIssue);
     }
 
-    // 🔹 Add parts as subdocuments
-    parts.forEach(p => {
-      latestIssue.parts.push(
-        latestIssue.parts.create({
-          itemName: p.itemName,
-          quantity: p.quantity,
-          unit: p.unit || "",
-          company: p.companyName || "admin fr", // ✅ schema match
-          requiredDate: p.requiredDate ? new Date(p.requiredDate) : null,
-          deliveryAddress: work.location, 
-          requestedBy: technicianId,
-          requestedOn: new Date(),
-          status: "pending_fastresponse"
-        })
-      );
-    });
+const partDetails = parts.map(p => ({
+  itemName: p.itemName,
+  quantity: p.quantity,
+  unit: p.unit || "",
+  componyName:"",
+  requiredDate: p.requiredDate ? new Date(p.requiredDate) : null,
+  deliveryAddress: work.location, 
+  requestedBy: technicianId,
+  requestedOn: new Date(),
+  status: "pending_fastresponse"
+}));
 
-    // 🔹 Update work status
+    latestIssue.parts = [...(latestIssue.parts || []), ...partDetails];
+
+   
     work.status = "inprogress";
 
     await work.save();
@@ -639,7 +633,7 @@ exports.needPartRequest = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: "Parts requested successfully",
-      parts: latestIssue.parts,
+      parts: partDetails,
       work
     });
 
