@@ -47,6 +47,11 @@ const workSchema = new mongoose.Schema(
       default: "open",
     },
 
+
+
+
+
+
    issues: [
   {
     issueType: {
@@ -65,8 +70,60 @@ const workSchema = new mongoose.Schema(
 
     resolvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     resolvedAt: { type: Date },
+    parts: [
+  {
+    itemName: { type: String, required: true },
+    quantity: { type: String, required: true },
+    unit: String,
+    requiredDate: Date,
+    
+    
+
+    deliveryAddress: String, 
+    company: { type:String },
+
+    requestedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    requestedOn: { type: Date, default: Date.now },
+
+ 
+    status: {
+      type: String,
+      enum: [
+        "pending_fastresponse", 
+        "approved_fastresponse", 
+        "rejected_fastresponse", 
+        "pending_ims", 
+        "dispatched_from_ims", 
+        "received_parts"
+      ],
+      default: "pending_fastresponse"
+    },
+
+    approvedBy_FR: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    approvedAt_FR: Date,
+
+    rejectedBy_FR: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    rejectionReason_FR: String,
+
+    dispatchedBy_IMS: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    dispatchedAt_IMS: Date,
+    
+    dispatchDetails: {
+      trackingId: String,
+      courierName: String,
+      deliveryExpected: Date
+    },
+
+    receivedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    receivedAt: Date
+  }
+]
+
   }
 ],
+
+
+
 
 issueCount: {
   type: Number,
@@ -108,7 +165,7 @@ issueCount: {
       },
 
     },
-
+    upiApp:String,
     
     billId: {
       type: mongoose.Schema.Types.ObjectId,
