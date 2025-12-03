@@ -621,7 +621,7 @@ exports.needPartRequest = async (req, res) => {
           itemName: p.itemName,
           quantity: p.quantity,
           unit: p.unit || "",
-          companyName: p.companyName || "",
+          company: p.companyName || "admin fr", // ✅ schema match
           requiredDate: p.requiredDate ? new Date(p.requiredDate) : null,
           deliveryAddress: work.location, 
           requestedBy: technicianId,
@@ -652,6 +652,7 @@ exports.needPartRequest = async (req, res) => {
     });
   }
 };
+
 
 
 exports.getMyPartsRequests = async (req, res) => {
