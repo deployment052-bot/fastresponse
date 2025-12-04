@@ -88,8 +88,8 @@ let upiIntent = null;
       workId: work._id,
       technicianId,
       clientId: work.client._id,
-      serviceCharge: totalAmount,
-      totalAmount,
+    serviceCharge: totalAmount,
+      totalAmount:work.serviceCharge,
       paymentMethod,
        upiIntent,
       status: "sent",
@@ -105,9 +105,8 @@ let upiIntent = null;
       if (!finalUpi) return res.status(400).json({ message: "UPI ID is required for UPI payment" });
 
       const name = encodeURIComponent(req.user.firstName || "Technician");
-      upiUri = `upi://pay?pa=${finalUpi}&pn=${name}&am=${serviceCharge}&cu=INR&tn=Service%20Payment`;
-
-      clickableUPI = `https://upi.me/pay?pa=${finalUpi}&pn=${name}&am=${serviceCharge}&cu=INR&tn=Service%20Payment`;
+   upiUri = `upi://pay?pa=${finalUpi}&pn=${name}&am=${totalAmount}&cu=INR&tn=Service%20Payment`;
+clickableUPI = `https://upi.me/pay?pa=${finalUpi}&pn=${name}&am=${totalAmount}&cu=INR&tn=Service%20Payment`;
 
       const qrDataUrl = await QRCode.toDataURL(upiUri);
       qrBuffer = Buffer.from(qrDataUrl.split(",")[1], "base64");
