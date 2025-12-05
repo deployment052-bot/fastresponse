@@ -43,7 +43,8 @@ require("./config/passport");
 app.use(cors({
   origin: [
     "http://localhost:5173",
-    "https://whimsical-fenglisu-4a7b67.netlify.app"
+    "https://whimsical-fenglisu-4a7b67.netlify.app",
+    "fantastic-pie-84a677.netlify.app"
   ],
   credentials: true,
 }));
