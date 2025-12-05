@@ -430,7 +430,7 @@ exports.updatePartStatus = async (req, res) => {
       work.status = "pending_ims";
       await work.save();
 
-      console.log("🔄 Sending approved parts to IMS...");
+      console.log(" Sending approved parts to IMS...");
 
       const imsToken = jwt.sign(
         { system: "FR Admin" },
@@ -438,7 +438,7 @@ exports.updatePartStatus = async (req, res) => {
         { expiresIn: "1d" }
       );
 
-      // Filter only approved parts
+      
       const imsRequests = issue.parts
         .filter(p => p.status === "fr_approved")
         .map(p => ({
@@ -460,7 +460,7 @@ exports.updatePartStatus = async (req, res) => {
         )
       );
 
-      console.log("📦 IMS Request Sent Successfully!");
+      console.log(" IMS Request Sent Successfully!");
     }
 
     return res.status(200).json({
@@ -477,3 +477,4 @@ exports.updatePartStatus = async (req, res) => {
     });
   }
 };
+
