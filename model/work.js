@@ -92,7 +92,7 @@ const workSchema = new mongoose.Schema(
         "pending_fastresponse", 
         "approved_fastresponse", 
         "rejected_fastresponse", 
-        "pending_ims", 
+      
         "dispatched_from_ims", 
         "received_parts"
       ],
