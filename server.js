@@ -19,7 +19,7 @@ const io = new Server(server, {
     origin: [
       "http://localhost:5173",
       
-      "fantastic-pie-84a677.netlify.app"
+      "https://fantastic-pie-84a677.netlify.app"
     ],
     credentials: true,
   }
@@ -43,7 +43,7 @@ require("./config/passport");
 app.use(cors({
   origin: [
     "http://localhost:5173",
-   "fantastic-pie-84a677.netlify.app"
+   "https://fantastic-pie-84a677.netlify.app"
   ],
   credentials: true,
 }));
