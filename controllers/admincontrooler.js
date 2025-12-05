@@ -391,8 +391,12 @@ exports.updatePartStatus = async (req, res) => {
   try {
     const { workId, issueId, partId, action } = req.body;
 
-    const newStatus = action === "approve" ? "fr_approved" : "fr_rejected";
+    const newStatus =
+      action === "approve"
+        ? "approved_fastresponse"
+        : "rejected_fastresponse";
 
+    // Update specific part status
     const work = await Work.findOneAndUpdate(
       {
         _id: workId,
@@ -420,33 +424,32 @@ exports.updatePartStatus = async (req, res) => {
 
     const issue = work.issues.id(issueId);
 
-    // Check if any FR pending part exists
+    // Check if any part still pending
     const stillPending = issue.parts.some(
-      p => p.status === "pending_fastresponse"
+      (p) => p.status === "pending_fastresponse"
     );
 
-    // When all FR approvals done → Send to IMS
+    // If no pending → send approved parts to IMS
     if (!stillPending) {
       work.status = "pending_ims";
       await work.save();
 
-      console.log(" Sending approved parts to IMS...");
+      console.log("Sending approved parts to IMS...");
 
       const imsToken = jwt.sign(
-        { system: "FR Admin" },
+        { system: "FR" },
         process.env.IMS_JWT_SECRET,
         { expiresIn: "1d" }
       );
 
-      
       const imsRequests = issue.parts
-        .filter(p => p.status === "fr_approved")
+        .filter(p => p.status === "approved_fastresponse")
         .map(p => ({
           itemName: p.itemName,
           quantity: p.quantity,
           requiredDate: p.requiredDate || new Date(),
           location: work.location || "",
-          workRefId: workId,
+          workRefId: work._id,
           partRefId: p._id
         }));
 
@@ -460,12 +463,12 @@ exports.updatePartStatus = async (req, res) => {
         )
       );
 
-      console.log(" IMS Request Sent Successfully!");
+      console.log("IMS Requests Sent Successfully! 🚀");
     }
 
     return res.status(200).json({
       success: true,
-      message: `Part ${newStatus}`,
+      message: `Part status updated to ${newStatus}`,
       work
     });
 
@@ -477,4 +480,5 @@ exports.updatePartStatus = async (req, res) => {
     });
   }
 };
+
 
