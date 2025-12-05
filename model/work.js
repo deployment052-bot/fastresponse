@@ -87,18 +87,18 @@ const workSchema = new mongoose.Schema(
 
  
     status: {
-      type: String,
-      enum: [
-        "pending_fastresponse", 
-        "approved_fastresponse", 
-        "rejected_fastresponse", 
-      "ims_dispatched",
-        "pending_ims",
-        "dispatched_from_ims", 
-        "received_parts"
-      ],
-      default: "pending_fastresponse"
-    },
+  type: String,
+  enum: [
+    "pending_fastresponse",
+    "approved_fastresponse",
+    "rejected_fastresponse",
+    "pending_ims",
+    "dispatched_from_ims",
+    "received_parts"
+  ],
+  default: "pending_fastresponse"
+},
+
 
     approvedBy_FR: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     approvedAt_FR: Date,
