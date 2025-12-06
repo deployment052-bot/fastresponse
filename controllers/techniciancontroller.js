@@ -585,68 +585,66 @@ exports.raiseWorkIssue = async (req, res) => {
 };
 exports.needPartRequest = async (req, res) => {
   try {
-    const { workId, parts } = req.body; 
-    const technicianId = req.user && req.user._id ? req.user._id : req.body.technicianId;
+    const { workId, parts } = req.body;
+    const technicianId = req.user?._id || req.body.technicianId;
 
-    if (!parts || !Array.isArray(parts) || parts.length === 0) {
+    if (!parts || !Array.isArray(parts) || !parts.length) {
       return res.status(400).json({ message: "Parts details are required" });
     }
 
     const work = await Work.findById(workId);
     if (!work) return res.status(404).json({ message: "Work not found" });
 
-   
-    let latestIssue = work.issues.filter(i => i.issueType === "need_parts" && i.status === "open").slice(-1)[0];
 
+    let latestIssue = work.issues.find(i => i.issueType === "need_parts" && i.status === "open");
     if (!latestIssue) {
-      latestIssue = {
+      latestIssue = work.issues.create({
         issueType: "need_parts",
         remarks: "",
         raisedBy: technicianId,
         raisedAt: new Date(),
         status: "open",
         parts: []
-      };
+      });
       work.issues.push(latestIssue);
     }
 
-const partDetails = parts.map(p => ({
-  itemName: p.itemName,
-  quantity: p.quantity,
-  unit: p.unit || "",
-  componyName:"",
-  requiredDate: p.requiredDate ? new Date(p.requiredDate) : null,
-  deliveryAddress: work.location, 
-  requestedBy: technicianId,
-  requestedOn: new Date(),
-  status: "pending_fastresponse"
-}));
+    // Add new parts
+   parts.forEach(p => {
+  latestIssue.parts.push({
+    itemName: p.itemName,
+    quantity: p.quantity,
+    Decofitem: typeof p.Decofitem === "string" && p.Decofitem.trim() !== "" 
+                ? p.Decofitem 
+                : "not having", 
+    unit: p.unit || "",
+    company: p.companyName || "",
+    requiredDate: p.requiredDate ? new Date(p.requiredDate) : null,
+    deliveryAddress: work.location || "",
+    requestedBy: technicianId,
+    requestedOn: new Date(),
+    status: "pending_fastresponse" 
+  });
+});
 
-    latestIssue.parts = [...(latestIssue.parts || []), ...partDetails];
-
-   
     work.status = "inprogress";
-
     await work.save();
 
     return res.status(201).json({
       success: true,
       message: "Parts requested successfully",
-      parts: partDetails,
+      parts: latestIssue.parts,
       work
     });
-
-  } catch (error) {
-    console.error("Add Part Request Error:", error);
+  } catch (err) {
+    console.error("Add Part Request Error:", err);
     return res.status(500).json({
       message: "Failed to add part request",
-      error: error.message,
-      stack: error.stack
+      error: err.message,
+      stack: err.stack
     });
   }
 };
-
-
 
 exports.getMyPartsRequests = async (req, res) => {
   try {
