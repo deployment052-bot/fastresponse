@@ -74,6 +74,7 @@ const workSchema = new mongoose.Schema(
   {
     itemName: { type: String, required: true },
     quantity: { type: String, required: true },
+    Decofitem:{type:String,required:true},
     unit: String,
     requiredDate: Date,
     
