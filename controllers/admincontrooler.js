@@ -389,65 +389,96 @@ exports.getPartsPendingRequests = async (req, res) => {
 
 
 
-exports.needPartRequest = async (req, res) => {
+exports.updatePartStatus = async (req, res) => {
   try {
-    const { workId, parts } = req.body;
-    const technicianId = req.user?._id || req.body.technicianId;
+    const { workId, issueId, partId, action } = req.body;
 
-    if (!parts || !Array.isArray(parts) || !parts.length) {
-      return res.status(400).json({ message: "Parts details are required" });
+    const newStatus =
+      action === "approve"
+        ? "approved_fastresponse"
+        : "rejected_fastresponse";
+
+    const work = await Work.findOneAndUpdate(
+      {
+        _id: workId,
+        "issues._id": issueId,
+        "issues.parts._id": partId,
+      },
+      {
+        $set: {
+          "issues.$[i].parts.$[p].status": newStatus,
+          "issues.$[i].parts.$[p].updatedOn": new Date(),
+        },
+      },
+      {
+        arrayFilters: [{ "i._id": issueId }, { "p._id": partId }],
+        new: true,
+      }
+    );
+
+    if (!work) {
+      return res.status(404).json({ message: "Part not found" });
     }
 
-    const work = await Work.findById(workId);
-    if (!work) return res.status(404).json({ message: "Work not found" });
+    const issue = work.issues.id(issueId);
 
+    const stillPending = issue.parts.some(
+      (p) => p.status === "pending_fastresponse"
+    );
 
-    let latestIssue = work.issues.find(i => i.issueType === "need_parts" && i.status === "open");
-    if (!latestIssue) {
-      latestIssue = work.issues.create({
-        issueType: "need_parts",
-        remarks: "",
-        raisedBy: technicianId,
-        raisedAt: new Date(),
-        status: "open",
-        parts: []
+    if (!stillPending) {
+      // Update approved parts → pending_ims
+      issue.parts.forEach((p) => {
+        if (p.status === "approved_fastresponse") {
+          p.status = "pending_ims";
+        }
       });
-      work.issues.push(latestIssue);
+
+      await work.save();
+
+      console.log("Sending approved parts to IMS...");
+
+      const imsToken = jwt.sign(
+        { system: "FR" },
+        process.env.IMS_JWT_SECRET,
+        { expiresIn: "1d" }
+      );
+
+      const imsRequests = issue.parts
+        .filter((p) => p.status === "pending_ims")
+        .map((p) => ({
+          itemName: p.itemName,
+          quantity: p.quantity,
+          Decofitem: p.Decofitem || "not provided", 
+          requiredDate: p.requiredDate || new Date(),
+          deliveryAddress: work.location || "",
+          workRefId: work._id,
+          partRefId: p._id,
+        }));
+
+      const imsBaseUrl = process.env.IMS_BASE_URL;
+
+      await Promise.all(
+        imsRequests.map((reqObj) =>
+          axios.post(`${imsBaseUrl}/api/request/from-fr`, reqObj, {
+            headers: { Authorization: `Bearer ${imsToken}` },
+          })
+        )
+      );
+
+      console.log("IMS Requests Sent Successfully! 🚀");
     }
 
-    // Add new parts
-   parts.forEach(p => {
-  latestIssue.parts.push({
-    itemName: p.itemName,
-    quantity: p.quantity,
-    Decofitem: typeof p.Decofitem === "string" && p.Decofitem.trim() !== "" 
-                ? p.Decofitem 
-                : "not having", 
-    unit: p.unit || "",
-    company: p.companyName || "",
-    requiredDate: p.requiredDate ? new Date(p.requiredDate) : null,
-    deliveryAddress: work.location || "",
-    requestedBy: technicianId,
-    requestedOn: new Date(),
-    status: "pending_fastresponse" 
-  });
-});
-
-    work.status = "inprogress";
-    await work.save();
-
-    return res.status(201).json({
+    return res.status(200).json({
       success: true,
-      message: "Parts requested successfully",
-      parts: latestIssue.parts,
-      work
+      message: `Part status updated to ${newStatus}`,
+      work,
     });
-  } catch (err) {
-    console.error("Add Part Request Error:", err);
+  } catch (error) {
+    console.error("Update Part Status Error:", error);
     return res.status(500).json({
-      message: "Failed to add part request",
-      error: err.message,
-      stack: err.stack
+      message: "Failed to update part status",
+      error: error.message,
     });
   }
 };
