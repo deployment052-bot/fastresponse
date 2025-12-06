@@ -241,10 +241,8 @@ res.status(500).json
 };
 
 
-
 exports.getOpenIssues = async (req, res) => {
   try {
-  
     const countResult = await Work.aggregate([
       { $unwind: "$issues" },
       { $match: { "issues.status": "open" } },
@@ -253,34 +251,37 @@ exports.getOpenIssues = async (req, res) => {
 
     const openIssueCount = countResult.length > 0 ? countResult[0].count : 0;
 
-   
     const worksWithIssues = await Work.find({ "issues.status": "open" })
       .populate("client", "firstName lastName phone location")
       .populate("assignedTechnician", "firstName lastName phone")
       .sort({ createdAt: -1 });
 
-    
     const issuesList = [];
 
     worksWithIssues.forEach(work => {
       work.issues.forEach(issue => {
+
         if (issue.status === "open") {
+          let pendingPartsCount = 0;
+
+          if (issue.issueType === "need_parts" && issue.parts) {
+            pendingPartsCount = issue.parts.filter(
+              p => p.status === "pending_fastresponse"
+            ).length;
+          }
+
           issuesList.push({
             issueId: issue._id,
-
             message: issue.message,
-
             raisedBy: issue.raisedBy,
-           
             raisedAt: issue.raisedAt,
-          
             workId: work._id,
-
             workStatus: work.status,
             serviceType: work.serviceType,
             client: work.client,
-             issueType:issue.issueType,
-            technician: work.assignedTechnician
+            issueType: issue.issueType,
+            technician: work.assignedTechnician,
+            pendingPartsCount // ✔ Added Here
           });
         }
       });
@@ -301,8 +302,6 @@ exports.getOpenIssues = async (req, res) => {
 exports.getAllIssues = async (req, res) => {
   try {
     const { status } = req.query; 
-    
-
     const matchStage = {};
 
     if (status) {
@@ -315,31 +314,33 @@ exports.getAllIssues = async (req, res) => {
       {
         $project: {
           workId: "$_id",
-          serviceType: 1,
-          token: 1,
           client: 1,
           assignedTechnician: 1,
+          serviceType: 1,
+          token: 1,
           issue: "$issues"
         }
       },
-      { $sort: { "issue.raisedAt": -1 } } 
+      { $sort: { "issue.raisedAt": -1 } }
     ]);
 
-  
     const populated = await Promise.all(
       worksWithIssues.map(async (item) => {
-        const client = await User.findById(item.client).select(
-          "firstName lastName phone"
-        );
+        const client = await User.findById(item.client).select("firstName lastName phone");
+        const technician = await User.findById(item.assignedTechnician).select("firstName lastName phone");
 
-        const technician = await User.findById(item.assignedTechnician).select(
-          "firstName lastName phone"
-        );
+        let pendingPartsCount = 0;
+        if (item.issue.issueType === "need_parts" && item.issue.parts) {
+          pendingPartsCount = item.issue.parts.filter(
+            p => p.status === "pending_fastresponse"
+          ).length;
+        }
 
         return {
           ...item,
           client,
-          technician
+          technician,
+          pendingPartsCount // ✔ Added Here
         };
       })
     );
@@ -359,35 +360,63 @@ exports.getAllIssues = async (req, res) => {
   }
 };
 
-// exports.getissuebyId=async (req,res)=>{
-//   try{
-//     const {workId}=req.body;
-//      const 
-//   }catch{
-
-//   }
-// }
 exports.getPartsPendingRequests = async (req, res) => {
   try {
     const works = await Work.find({
-      "issues": {
-        $elemMatch: {
-          issueType: "need_parts",
-          "parts.status": "pending_fastresponse"
-        }
-      }
+      "issues.issueType": "need_parts",
+      "issues.parts.status": "pending_fastresponse"
     })
       .populate("client", "firstName lastName phone location")
       .populate("assignedTechnician", "firstName lastName phone");
 
-    return res.status(200).json({ success: true, works });
-  } catch (error) {
-    console.error("Error fetching pending parts:", error);
-    return res.status(500).json({ message: "Failed to fetch pending parts requests", error: error.message });
+    let grandTotalPendingParts = 0;
+
+    const finalResponse = works
+      .map((work) => {
+        let workPendingCount = 0;
+
+        const filteredIssues = work.issues
+          .map((issue) => {
+            if (issue.issueType !== "need_parts") return null;
+
+            const pendingParts = issue.parts.filter(
+              (p) => p.status === "pending_fastresponse"   // 🔥 JATKA YAHI HAI
+            );
+
+            if (!pendingParts.length) return null;
+
+            workPendingCount += pendingParts.length;
+            grandTotalPendingParts += pendingParts.length;
+
+            return {
+              ...issue.toObject(),
+              parts: pendingParts,
+              pendingPartsCount: pendingParts.length
+            };
+          })
+          .filter(Boolean);
+
+        if (!filteredIssues.length) return null;
+
+        return {
+          ...work.toObject(),
+          issues: filteredIssues,
+          pendingPartsCount: workPendingCount
+        };
+      })
+      .filter(Boolean);
+
+    return res.status(200).json({
+      success: true,
+      totalPendingParts: grandTotalPendingParts, // 🔥 Total parts requested but NOT approved/rejected
+      works: finalResponse,
+    });
+
+  } catch (err) {
+    console.error("Error fetching pending parts:", err);
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
-
-
 
 exports.updatePartStatus = async (req, res) => {
   try {
