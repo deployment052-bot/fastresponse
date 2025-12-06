@@ -449,8 +449,9 @@ exports.updatePartStatus = async (req, res) => {
         .map((p) => ({
           itemName: p.itemName,
           quantity: p.quantity,
+          Decofitem:p.Decofitem,
           requiredDate: p.requiredDate || new Date(),
-          location: work.location || "",
+          deliveryAddress: work.location || "",
           workRefId: work._id,
           partRefId: p._id,
         }));
