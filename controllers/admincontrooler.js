@@ -396,25 +396,21 @@ exports.updatePartStatus = async (req, res) => {
         ? "approved_fastresponse"
         : "rejected_fastresponse";
 
-    // Update specific part status
     const work = await Work.findOneAndUpdate(
       {
         _id: workId,
         "issues._id": issueId,
-        "issues.parts._id": partId
+        "issues.parts._id": partId,
       },
       {
         $set: {
           "issues.$[i].parts.$[p].status": newStatus,
-          "issues.$[i].parts.$[p].updatedOn": new Date()
-        }
+          "issues.$[i].parts.$[p].updatedOn": new Date(),
+        },
       },
       {
-        arrayFilters: [
-          { "i._id": issueId },
-          { "p._id": partId }
-        ],
-        new: true
+        arrayFilters: [{ "i._id": issueId }, { "p._id": partId }],
+        new: true,
       }
     );
 
@@ -424,14 +420,18 @@ exports.updatePartStatus = async (req, res) => {
 
     const issue = work.issues.id(issueId);
 
-    // Check if any part still pending
     const stillPending = issue.parts.some(
       (p) => p.status === "pending_fastresponse"
     );
 
-    // If no pending → send approved parts to IMS
     if (!stillPending) {
-      work.status = "pending_ims";
+      // ⭐ Correct Logic: Update parts → NOT issue/work
+      issue.parts.forEach((p) => {
+        if (p.status === "approved_fastresponse") {
+          p.status = "pending_ims";
+        }
+      });
+
       await work.save();
 
       console.log("Sending approved parts to IMS...");
@@ -443,22 +443,22 @@ exports.updatePartStatus = async (req, res) => {
       );
 
       const imsRequests = issue.parts
-        .filter(p => p.status === "approved_fastresponse")
-        .map(p => ({
+        .filter((p) => p.status === "pending_ims")
+        .map((p) => ({
           itemName: p.itemName,
           quantity: p.quantity,
           requiredDate: p.requiredDate || new Date(),
           location: work.location || "",
           workRefId: work._id,
-          partRefId: p._id
+          partRefId: p._id,
         }));
 
       const imsBaseUrl = process.env.IMS_BASE_URL;
 
       await Promise.all(
-        imsRequests.map(request =>
-          axios.post(`${imsBaseUrl}/api/request/from-fr`, request, {
-            headers: { Authorization: `Bearer ${imsToken}` }
+        imsRequests.map((reqObj) =>
+          axios.post(`${imsBaseUrl}/api/request/from-fr`, reqObj, {
+            headers: { Authorization: `Bearer ${imsToken}` },
           })
         )
       );
@@ -469,16 +469,14 @@ exports.updatePartStatus = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: `Part status updated to ${newStatus}`,
-      work
+      work,
     });
-
   } catch (error) {
     console.error("Update Part Status Error:", error);
     return res.status(500).json({
       message: "Failed to update part status",
-      error: error.message
+      error: error.message,
     });
   }
 };
-
 
