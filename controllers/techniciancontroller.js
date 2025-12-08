@@ -164,21 +164,7 @@ clickableUPI = `https://upi.me/pay?pa=${finalUpi}&pn=${name}&am=${totalAmount}&c
       });
     }
 
-    const emailBody = `
-      <p>Hello ${client.firstName || ""},</p>
-      <p>Your service <b>${work.serviceType || ""}</b> has been completed.</p>
-      <p><b>Total Amount:</b> ₹${totalAmount}</p>
-      ${
-        paymentMethod === "upi"
-          ? `<p><b>Pay Now:</b> <a href="${clickableUPI}">Click here to pay via UPI</a></p>
-             <p><img src="cid:qr_code" width="180" /></p>`
-          : `<p><b>Payment Mode:</b> Cash</p>`
-      }
-      <p>The bill (PDF) is attached.</p>
-      <p>Thank you!</p>
-    `;
 
-    await sendEmail(client.email, "Your Bill & Payment Details", emailBody, attachments);
 
    
     work.status = "completed";
