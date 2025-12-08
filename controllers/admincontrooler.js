@@ -332,7 +332,8 @@ exports.getAllIssues = async (req, res) => {
         let pendingPartsCount = 0;
         if (item.issue.issueType === "need_parts" && item.issue.parts) {
           pendingPartsCount = item.issue.parts.filter(
-            p => p.status === "pending_fastresponse"
+            p => p.status === "pending_fastresponse",
+            p=>p.status === "approved_fastresponse"
           ).length;
         }
 
@@ -364,10 +365,12 @@ exports.getPartsPendingRequests = async (req, res) => {
   try {
     const works = await Work.find({
       "issues.issueType": "need_parts",
-      "issues.parts.status": "pending_fastresponse"
+      "issues.parts.status": "pending_fastresponse",
+      "issueCount.parts.status":"approved_fastresponse",
     })
       .populate("client", "firstName lastName phone location")
-      .populate("assignedTechnician", "firstName lastName phone");
+      .populate("assignedTechnician", "firstName lastName phone")
+      .populate("issue.parts","itemName quantity Decofitem");
 
     let grandTotalPendingParts = 0;
 
@@ -456,7 +459,7 @@ exports.updatePartStatus = async (req, res) => {
     );
 
     if (!stillPending) {
-      // Update approved parts → pending_ims
+      
       issue.parts.forEach((p) => {
         if (p.status === "approved_fastresponse") {
           p.status = "pending_ims";
@@ -491,10 +494,13 @@ exports.updatePartStatus = async (req, res) => {
         imsRequests.map((reqObj) =>
           axios.post(`${imsBaseUrl}/api/request/from-fr`, reqObj, {
             headers: { Authorization: `Bearer ${imsToken}` },
+            
           })
+          
         )
+        
       );
-
+    
       console.log("IMS Requests Sent Successfully! 🚀");
     }
 
@@ -509,5 +515,88 @@ exports.updatePartStatus = async (req, res) => {
       message: "Failed to update part status",
       error: error.message,
     });
+  }
+};
+
+exports.getAllPartsRequests = async (req, res) => {
+  try {
+    const works = await Work.find({
+      "issues.issueType": "need_parts"
+    })
+      .populate("client", "firstName lastName phone location")
+      .populate("assignedTechnician", "firstName lastName phone");
+
+    let totalCounts = {
+      pending: 0,
+      approved: 0,
+      rejected: 0,
+      imsPending: 0,
+      imsDispatched: 0,
+      received: 0
+    };
+
+    const finalData = works.map(work => {
+      const issues = work.issues
+        .filter(issue => issue.issueType === "need_parts")
+        .map(issue => {
+          const statusCount = {
+            pending: 0,
+            approved: 0,
+            rejected: 0,
+            imsPending: 0,
+            imsDispatched: 0,
+            received: 0
+          };
+
+          issue.parts.forEach(part => {
+            switch (part.status) {
+              case "pending_fastresponse":
+                statusCount.pending++;
+                totalCounts.pending++;
+                break;
+              case "approved_fastresponse":
+                statusCount.approved++;
+                totalCounts.approved++;
+                break;
+              case "rejected_fastresponse":
+                statusCount.rejected++;
+                totalCounts.rejected++;
+                break;
+              case "pending_ims":
+                statusCount.imsPending++;
+                totalCounts.imsPending++;
+                break;
+              case "dispatched_from_ims":
+                statusCount.imsDispatched++;
+                totalCounts.imsDispatched++;
+                break;
+              case "received_parts":
+                statusCount.received++;
+                totalCounts.received++;
+                break;
+            }
+          });
+
+          return {
+            ...issue.toObject(),
+            statusCount
+          };
+        });
+
+      return {
+        ...work.toObject(),
+        issues
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      totalCounts,
+      works: finalData
+    });
+
+  } catch (err) {
+    console.error("Error:", err);
+    res.status(500).json({ success: false, message: err.message });
   }
 };
