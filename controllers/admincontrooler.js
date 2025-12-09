@@ -365,12 +365,9 @@ exports.getPartsPendingRequests = async (req, res) => {
   try {
     const works = await Work.find({
       "issues.issueType": "need_parts",
-      "issues.parts.status": "pending_fastresponse",
-      "issueCount.parts.status":"approved_fastresponse",
     })
       .populate("client", "firstName lastName phone location")
-      .populate("assignedTechnician", "firstName lastName phone")
-      .populate("issue.parts","itemName quantity Decofitem");
+      .populate("assignedTechnician", "firstName lastName phone");
 
     let grandTotalPendingParts = 0;
 
@@ -382,19 +379,29 @@ exports.getPartsPendingRequests = async (req, res) => {
           .map((issue) => {
             if (issue.issueType !== "need_parts") return null;
 
-            const pendingParts = issue.parts.filter(
-              (p) => p.status === "pending_fastresponse"   // 🔥 JATKA YAHI HAI
-            );
+            // Count pending parts only (open or pending_fastresponse)
+            const pendingPartsCount = issue.parts.filter(
+              (p) => p.status === "open" || p.status === "pending_fastresponse"
+            ).length;
 
-            if (!pendingParts.length) return null;
+            if (pendingPartsCount === 0) return null; // no pending parts → skip issue
 
-            workPendingCount += pendingParts.length;
-            grandTotalPendingParts += pendingParts.length;
+            workPendingCount += pendingPartsCount;
+            grandTotalPendingParts += pendingPartsCount;
 
             return {
               ...issue.toObject(),
-              parts: pendingParts,
-              pendingPartsCount: pendingParts.length
+              pendingPartsCount,
+
+              // Show ALL parts (details) with isPending flag
+              parts: issue.parts.map((p) => ({
+                _id: p._id,
+                itemName: p.itemName,
+                quantity: p.quantity,
+                status: p.status,
+                remarks: p.remarks,
+                isPending: p.status === "open" || p.status === "pending_fastresponse"
+              }))
             };
           })
           .filter(Boolean);
@@ -409,15 +416,15 @@ exports.getPartsPendingRequests = async (req, res) => {
       })
       .filter(Boolean);
 
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
-      totalPendingParts: grandTotalPendingParts, // 🔥 Total parts requested but NOT approved/rejected
-      works: finalResponse,
+      totalPendingParts: grandTotalPendingParts,
+      works: finalResponse
     });
 
   } catch (err) {
     console.error("Error fetching pending parts:", err);
-    return res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -520,83 +527,188 @@ exports.updatePartStatus = async (req, res) => {
 
 exports.getAllPartsRequests = async (req, res) => {
   try {
+    // Fetch all works that have "need_parts" issues
     const works = await Work.find({
       "issues.issueType": "need_parts"
     })
       .populate("client", "firstName lastName phone location")
       .populate("assignedTechnician", "firstName lastName phone");
 
-    let totalCounts = {
-      pending: 0,
-      approved: 0,
-      rejected: 0,
-      imsPending: 0,
-      imsDispatched: 0,
-      received: 0
-    };
+    let totalPendingParts = 0;
 
-    const finalData = works.map(work => {
+    const finalData = works.map((work) => {
+      let workPendingCount = 0;
+
       const issues = work.issues
         .filter(issue => issue.issueType === "need_parts")
         .map(issue => {
-          const statusCount = {
-            pending: 0,
-            approved: 0,
-            rejected: 0,
-            imsPending: 0,
-            imsDispatched: 0,
-            received: 0
-          };
+          // Count pending parts only
+          const pendingPartsCount = issue.parts.filter(
+            p => p.status === "open" || p.status === "pending_fastresponse"
+          ).length;
 
-          issue.parts.forEach(part => {
-            switch (part.status) {
-              case "pending_fastresponse":
-                statusCount.pending++;
-                totalCounts.pending++;
-                break;
-              case "approved_fastresponse":
-                statusCount.approved++;
-                totalCounts.approved++;
-                break;
-              case "rejected_fastresponse":
-                statusCount.rejected++;
-                totalCounts.rejected++;
-                break;
-              case "pending_ims":
-                statusCount.imsPending++;
-                totalCounts.imsPending++;
-                break;
-              case "dispatched_from_ims":
-                statusCount.imsDispatched++;
-                totalCounts.imsDispatched++;
-                break;
-              case "received_parts":
-                statusCount.received++;
-                totalCounts.received++;
-                break;
-            }
-          });
+          workPendingCount += pendingPartsCount;
+          totalPendingParts += pendingPartsCount;
+
+          // Map all parts with full details + isPending flag
+          const parts = issue.parts.map(p => ({
+            _id: p._id,
+            itemName: p.itemName,
+            quantity: p.quantity,
+            status: p.status,
+            remarks: p.remarks,
+            isPending: p.status === "open" || p.status === "pending_fastresponse",
+            requiredDate: p.requiredDate || null,
+            Decofitem: p.Decofitem || null,
+            updatedOn: p.updatedOn || null
+          }));
 
           return {
             ...issue.toObject(),
-            statusCount
+            pendingPartsCount,
+            parts
           };
         });
 
       return {
         ...work.toObject(),
-        issues
+        issues,
+        pendingPartsCount: workPendingCount
       };
     });
 
     res.status(200).json({
       success: true,
-      totalCounts,
+      totalPendingParts,
       works: finalData
     });
 
   } catch (err) {
-    console.error("Error:", err);
+    console.error("Error fetching all need parts:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+
+exports.getAllPartsRequests = async (req, res) => {
+  try {
+    // Fetch all works that have "need_parts" issues
+    const works = await Work.find({
+      "issues.issueType": "need_parts"
+    })
+      .populate("client", "firstName lastName phone location")
+      .populate("assignedTechnician", "firstName lastName phone");
+
+    let totalPendingParts = 0;
+
+    const finalData = works.map((work) => {
+      let workPendingCount = 0;
+
+      const issues = work.issues
+        .filter(issue => issue.issueType === "need_parts")
+        .map(issue => {
+          // Count pending parts only
+          const pendingPartsCount = issue.parts.filter(
+            p => p.status === "open" || p.status === "pending_fastresponse"
+          ).length;
+
+          workPendingCount += pendingPartsCount;
+          totalPendingParts += pendingPartsCount;
+
+          // Map all parts with full details + isPending flag
+          const parts = issue.parts.map(p => ({
+            _id: p._id,
+            itemName: p.itemName,
+            quantity: p.quantity,
+            status: p.status,
+            remarks: p.remarks,
+            isPending: p.status === "open" || p.status === "pending_fastresponse",
+            requiredDate: p.requiredDate || null,
+            Decofitem: p.Decofitem || null,
+            updatedOn: p.updatedOn || null
+          }));
+
+          return {
+            ...issue.toObject(),
+            pendingPartsCount,
+            parts
+          };
+        });
+
+      return {
+        ...work.toObject(),
+        issues,
+        pendingPartsCount: workPendingCount
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      totalPendingParts,
+      works: finalData
+    });
+
+  } catch (err) {
+    console.error("Error fetching all need parts:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.getNeedPartsByWorkId = async (req, res) => {
+  try {
+    const { workId } = req.params;
+
+    if (!workId) {
+      return res.status(400).json({ success: false, message: "Work ID is required" });
+    }
+
+    const work = await Work.findById(workId)
+      .populate("client", "firstName lastName phone location")
+      .populate("assignedTechnician", "firstName lastName phone");
+
+    if (!work) {
+      return res.status(404).json({ success: false, message: "Work not found" });
+    }
+
+ 
+    const issues = work.issues
+      .filter(issue => issue.issueType === "need_parts")
+      .map(issue => {
+        const pendingPartsCount = issue.parts.filter(
+          p => p.status === "open" || p.status === "pending_fastresponse"
+        ).length;
+
+        const parts = issue.parts.map(p => ({
+          _id: p._id,
+          itemName: p.itemName,
+          quantity: p.quantity,
+          status: p.status,
+          remarks: p.remarks,
+          isPending: p.status === "open" || p.status === "pending_fastresponse",
+          requiredDate: p.requiredDate || null,
+          Decofitem: p.Decofitem || null,
+          updatedOn: p.updatedOn || null
+        }));
+
+        return {
+          ...issue.toObject(),
+          pendingPartsCount,
+          parts
+        };
+      });
+
+    res.status(200).json({
+      success: true,
+      workId: work._id,
+      client: work.client,
+      technician: work.assignedTechnician,
+      issues,
+      totalPendingParts: issues.reduce((acc, i) => acc + i.pendingPartsCount, 0)
+    });
+
+  } catch (err) {
+    console.error("Error fetching need parts by work ID:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
