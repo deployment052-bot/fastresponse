@@ -3,11 +3,11 @@ const { protect , authorize } = require("../middelware/authMiddelware");
 const router = express.Router();
 const {
 
-  getTechnicianWorkForAdmin,getAllTechniciansForAdmin,getAllClientForAdmin,getclientWorkForAdmin,getAllWorkAdmin,resolveWorkIssue,getOpenIssues,getAllIssues,getPartsPendingRequests,updatePartStatus
+  getTechnicianWorkForAdmin,getAllTechniciansForAdmin,getAllClientForAdmin,getclientWorkForAdmin,getAllWorkAdmin,resolveWorkIssue,getOpenIssues,getAllIssues,getPartsPendingRequests,updatePartStatus,getAllPartsRequests,getNeedPartsByWorkId
 } = require("../controllers/admincontrooler");
 // const { getAllTechnicianWorks } = require("../controllers/techniciancontroller");
 
-router.post('/issue-resolve',resolveWorkIssue)
+router.post('/issue-resolve',resolveWorkIssue) // hit the resolve
 router.post('/get-technician',protect,authorize('admin'),getTechnicianWorkForAdmin)
 router.get('/gettechnican',protect,authorize('admin'),getAllTechniciansForAdmin );
 router.get('/getclient',protect,authorize('admin'),getAllClientForAdmin);
@@ -22,6 +22,6 @@ router.get('/getallissue',protect,authorize('admin'),getAllIssues)// ye wala all
 //after this every route is for to the making the matairial 
 router.get('/getneedpartsrequest',protect,authorize('admin'),getPartsPendingRequests) // for to fetching the needparts issue
 router.put('/approverejectbyadmin',protect,authorize('admin'),updatePartStatus) // for to make action on the needpart request
-
-
+router.get('/getneedpart',protect,authorize('admin'),getAllPartsRequests)
+router.get('/getneedbyid/:workId',protect,authorize('admin'),getNeedPartsByWorkId)
 module.exports = router;
