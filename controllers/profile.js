@@ -50,7 +50,8 @@ exports.updateProfileClient = async (req, res) => {
   }
 };
 
-// 🟡 SOFT DELETE CLIENT
+
+//ye bhi hard delete kr raha h abhi k liye 
 exports.deleteClient = async (req, res) => {
   try {
     if (req.user.role !== "admin") {
@@ -58,20 +59,16 @@ exports.deleteClient = async (req, res) => {
     }
 
     const clientId = req.params.id;
-    const client = await User.findById(clientId);
 
-    if (!client || client.role !== "client") {
+    const client = await User.findByIdAndDelete(clientId);
+
+    if (!client) {
       return res.status(404).json({ message: "Client not found" });
     }
 
-    client.isActive = false;
-    client.deletedAt = new Date(); // track delete time
-
-    await client.save();
-
     res.json({
       success: true,
-      message: "Client deleted successfully (soft delete)"
+      message: "Client permanently deleted"
     });
 
   } catch (err) {
@@ -79,6 +76,8 @@ exports.deleteClient = async (req, res) => {
     res.status(500).json({ message: "Server error", error: err.message });
   }
 };
+
+
 
 
 
@@ -120,27 +119,26 @@ exports.updateProfileTechnician = async (req, res) => {
   }
 };
 
-// 🔵 SOFT DELETE TECHNICIAN
+
+// ye hard delete kr raha h abhi ke liye 
 exports.deleteTechnician = async (req, res) => {
   try {
     if (req.user.role !== "admin") {
       return res.status(403).json({ message: "Only admin can delete a technician" });
     }
 
-    const technician = await User.findById(req.params.id);
+    const technician = await User.findOneAndDelete({
+      _id: req.params.id,
+      role: "technician"
+    });
 
-    if (!technician || technician.role !== "technician") {
+    if (!technician) {
       return res.status(404).json({ message: "Technician not found" });
     }
 
-    technician.isActive = false;
-    technician.deletedAt = new Date();
-
-    await technician.save();
-
     res.json({
       success: true,
-      message: "Technician deleted successfully (soft delete)"
+      message: "Technician permanently deleted"
     });
 
   } catch (err) {
@@ -148,3 +146,4 @@ exports.deleteTechnician = async (req, res) => {
     res.status(500).json({ message: "Server error", error: err.message });
   }
 };
+
