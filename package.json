@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "jest --detectOpenHandles --forceExit"
   },
   "keywords": [],
   "author": "",
@@ -13,10 +13,12 @@
   "dependencies": {
     "@sendgrid/mail": "^8.1.6",
     "axios": "^1.13.1",
+    "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.2",
     "cloudinary": "^2.8.0",
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
+    "dayjs": "^1.11.19",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "express-session": "^1.18.2",
@@ -41,6 +43,10 @@
     "url": "https://github.com/constructAbility/fast_response/issues"
   },
   "homepage": "https://github.com/constructAbility/fast_response#readme",
-  "devDependencies": {},
-  "type": "commonjs"
+  "type": "commonjs",
+  "devDependencies": {
+    "jest": "^30.2.0",
+    "mongodb-memory-server": "^10.4.1",
+    "supertest": "^7.1.4"
+  }
 }
