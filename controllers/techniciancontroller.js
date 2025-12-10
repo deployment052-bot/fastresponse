@@ -22,7 +22,7 @@ exports.completeWorkAndGenerateBill = async (req, res) => {
   try {
     const { workId, serviceCharge , paymentMethod = "upi", upiId,upiApp } = req.body;
     const technicianId = req.user._id;
-
+ const userId= await Work.findById(workId).select("client token serviceType");
   const paymentId = "pay_" + Date.now();
   const expiresAt = Date.now() + 10 * 60 * 1000; 
     
@@ -171,7 +171,28 @@ clickableUPI = `https://upi.me/pay?pa=${finalUpi}&pn=${name}&am=${totalAmount}&c
     work.completedAt = new Date();
     work.billId = bill._id;
     await work.save();
+   await Booking.findOneAndUpdate(
+      {
+        technician: technicianId,
+        user: work.client._id,
+        status: { $in: ["Requested", "approved", "on_the_way", "inprogress"] } // only active bookings
+      },
+      {
+        status: "work_completed",
+        completedAt: new Date() // optional
+      },
+      { new: true }
+    );
+  
 
+   await sendNotification(
+  userId.client,
+  "client",
+  "Work Complete",
+  `Your technician ${technician.firstName} complete your work.the service type is ${userId.serviceType}.Please pay your bill`,
+  "work_completed",
+  `work-${userId.token}`
+)
  return res.status(200).json({
   success: true,
   bill: {
@@ -430,7 +451,7 @@ exports.confirmPayment = async (req, res) => {
   try {
     const { workId, paymentMethod } = req.body; 
     const technicianId = req.user._id;
-
+ const userId=await Work.findById(workId).select("client token serviceType");
     const work = await Work.findById(workId)
       .populate("client", "firstName email phone")
       .populate("assignedTechnician", "firstName token email role phone");
@@ -501,7 +522,14 @@ exports.confirmPayment = async (req, res) => {
       ]
     );
 
-
+   await sendNotification(
+  userId.client,
+  "client",
+  "Payment Successful",
+  `Your technician ${technicianId.firstName} complete your work.the service type is ${userId.serviceType}.Payment type:${paymentMethod}`,
+  "payment_received",
+  `work-${userId.token}`
+)
     res.status(200).json({
       success: true,
       message: "Payment confirmed successfully by technician.",
