@@ -3,6 +3,7 @@ const Work = require("../model/work");
 const User = require("../model/user");
 const Booking=require("../model/BookOrder")
 const AdminNotification=require('../model/adminnotification')
+const { sendNotification } = require("../controllers/helpercontroller");
 const Newsletter = require("../model/sub");
 const axios = require("axios");
 const fs = require("fs");
@@ -265,7 +266,8 @@ exports.bookTechnician = async (req, res) => {
       description
     } = req.body;
 
-    const userId = req.user._id;
+        const userId = req.user._id;
+     const getwork=await Work.findById(workId).select("token")
 
     if (!workId || !mongoose.Types.ObjectId.isValid(workId))
       return res.status(400).json({ message: "Invalid Work ID" });
@@ -357,7 +359,24 @@ exports.bookTechnician = async (req, res) => {
       },
       { new: true }
     );
+await sendNotification(
+      technicianId,
+      "technician",
+      "New Work Assigned",
+      `You have received a new work request from ${client.firstName}.The service type is ${serviceType}`,
+      "new_work",
+      
+      `work-${getwork.token}`
+    );
 
+   await sendNotification(
+  userId,
+  "client",
+  "Requested",
+  `Your technician ${technician.firstName} has been booked successfully.the service type is ${serviceType}`,
+  "Requested",
+  `work-${getwork.token}`
+);
 
     res.status(201).json({
       message: "Technician booked successfully.",
@@ -387,6 +406,7 @@ exports.WorkStart = async (req, res) => {
     if (!workId) {
       return res.status(400).json({ message: "Work ID is required" });
     }
+     const gettoken=await Work.findById(workId).select("token")
 
     const work = await Work.findById(workId);
     if (!work) {
@@ -443,7 +463,14 @@ exports.WorkStart = async (req, res) => {
       { technician: technicianId, user: work.client, status: { $in: ["open", "taken", "dispatch"] } },
       { status: "inprogress" }
     );
-
+    await sendNotification(
+  work.client._id, 
+  "client", 
+  "Work Started", 
+  `Technician has started your work: ${work.serviceType}`,
+  "work_started",
+  `work${gettoken.token}`
+);
     res.status(200).json({
       message: "Technician started the work. Status set to in-progress.",
       work,
@@ -505,7 +532,22 @@ exports.updateLocation = async (req, res) => {
         workId: work._id,
       });
     }
-
+ await sendNotification(
+  work.client._id,
+  "client",
+  "Technician on the way",
+  `Technician has started your work: ${work.serviceType}`,
+  "technician_on_the_way",
+  `work${work.token}`
+);
+await sendNotification(
+  work.assignedTechnician,
+  "technician",
+  "Job Started",
+  `You have started: ${work.serviceType}`,
+  "technician_on_the_way",
+  `work${work.token}`
+);
     res.status(200).json({
       message: "Technician location updated and status set to 'dispatch'.",
       workStatus: work.status,
