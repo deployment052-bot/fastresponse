@@ -167,7 +167,7 @@ clickableUPI = `https://upi.me/pay?pa=${finalUpi}&pn=${name}&am=${totalAmount}&c
 
 
    
-    work.status = "work_completed";
+    work.status = "completed";
     work.completedAt = new Date();
     work.billId = bill._id;
     await work.save();
@@ -175,10 +175,10 @@ clickableUPI = `https://upi.me/pay?pa=${finalUpi}&pn=${name}&am=${totalAmount}&c
       {
         technician: technicianId,
         user: work.client._id,
-        status: { $in: ["Requested", "approved", "on_the_way", "inprogress"] } // only active bookings
+        status: { $in: ["Requested", "approved", "dispatch", "inprogress"] } // only active bookings
       },
       {
-        status: "work_completed",
+        status: "completed",
         completedAt: new Date() // optional
       },
       { new: true }
@@ -219,7 +219,6 @@ clickableUPI = `https://upi.me/pay?pa=${finalUpi}&pn=${name}&am=${totalAmount}&c
     return res.status(500).json({ message: "Error completing work", error: err.message });
   }
 };
-
 // abhi hum ye code use kr rahe h technician k work count k liye 
 exports.getTechnicianSummary1 = async (req, res) => {
   try {
