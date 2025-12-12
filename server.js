@@ -18,7 +18,7 @@ const io = new Server(server, {
   cors: {
     origin: [
       "http://localhost:5173",
-      
+      "https://honeydew-ibex-486236.hostingersite.com",
       "https://fantastic-pie-84a677.netlify.app"
     ],
     credentials: true,
