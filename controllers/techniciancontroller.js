@@ -20,7 +20,7 @@ if (!fs.existsSync(invoicesFolder)) {
 
 exports.completeWorkAndGenerateBill = async (req, res) => {
   try {
-    const { workId, serviceCharge , paymentMethod = "upi", upiId,upiApp } = req.body;
+    const { workId, serviceCharge , paymentMethod = "upi"||"cash", upiId,upiApp } = req.body;
     const technicianId = req.user._id;
  const userId= await Work.findById(workId).select("client token serviceType");
   const paymentId = "pay_" + Date.now();
@@ -167,7 +167,7 @@ clickableUPI = `https://upi.me/pay?pa=${finalUpi}&pn=${name}&am=${totalAmount}&c
 
 
    
-    work.status = "completed";
+    work.status = "work_completed";
     work.completedAt = new Date();
     work.billId = bill._id;
     await work.save();
@@ -232,13 +232,13 @@ exports.getTechnicianSummary1 = async (req, res) => {
 
     const activeCount = await Work.countDocuments({
       assignedTechnician: technicianId,
-      status: { $in: ["dispatch", "inprogress"] },
+      status: { $in: ["on_the_way", "inprogress"] },
     });
 
   
     const completedCount = await Work.countDocuments({
       assignedTechnician: technicianId,
-      status: "completed",
+      status: "work_completed",
     });
 
  
