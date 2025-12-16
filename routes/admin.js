@@ -24,4 +24,6 @@ router.get('/getneedpartsrequest',protect,authorize('admin'),getPartsPendingRequ
 router.put('/approverejectbyadmin',protect,authorize('admin'),updatePartStatus) // for to make action on the needpart request
 router.get('/getneedpart',protect,authorize('admin'),getAllPartsRequests)
 router.get('/getneedbyid/:workId',protect,authorize('admin'),getNeedPartsByWorkId)
+router.get('/getpi',protect,authorize('admin'),getIssueChartCounts)
+router.post('/unresolve-issue',protect,authorize('admin'),unresolveWorkIssue)
 module.exports = router;
