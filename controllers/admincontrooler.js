@@ -712,3 +712,104 @@ exports.getNeedPartsByWorkId = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+
+
+exports.getIssueChartCounts = async (req, res) => {
+  try {
+    const result = await Work.aggregate([
+      { $unwind: "$issues" },
+      {
+        $group: {
+          _id: "$issues.status",
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    let totalIssues = 0;
+
+    const chartCounts = {
+      on_hold: 0,      
+      resolved: 0,
+      unresolved: 0,
+      other: 0
+    };
+
+    result.forEach(item => {
+      totalIssues += item.count;
+
+      if (item._id === "open") {
+        chartCounts.on_hold = item.count; 
+      } 
+      else if (item._id === "resolved") {
+        chartCounts.resolved = item.count;
+      } 
+      else if (item._id === "unresolved") {
+        chartCounts.unresolved = item.count;
+      } 
+      else {
+        chartCounts.other += item.count;
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      totalIssues,
+      data: chartCounts
+    });
+
+  } catch (err) {
+    console.error("Issue Chart Count Error:", err);
+    res.status(500).json({
+      message: "Failed to fetch issue chart counts"
+    });
+  }
+};
+
+exports.unresolveWorkIssue = async (req, res) => {
+  try {
+    const { workId, issueId } = req.body;
+    const adminId = req.user?._id || req.body.adminId;
+
+    const work = await Work.findById(workId);
+    if (!work) return res.status(404).json({ message: "Work not found" });
+
+    const issue = work.issues.id(issueId);
+    if (!issue) return res.status(404).json({ message: "Issue not found" });
+
+    if (issue.status !== "resolved") {
+      return res.status(400).json({
+        message: "Only resolved issues can be marked as unresolved",
+      });
+    }
+
+    issue.status = "unresolved";
+    issue.unresolvedBy = adminId;
+    issue.unresolvedAt = new Date();
+
+ 
+    work.issueCount = (work.issueCount || 0) + 1;
+
+   
+    const activeIssues = work.issues.filter(
+      (i) => i.status === "open" || i.status === "unresolved"
+    );
+
+    if (activeIssues.length > 0) {
+      work.status = "issue_pending";
+    }
+
+    await work.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Issue marked as unresolved",
+      work,
+    });
+
+  } catch (error) {
+    console.error("Unresolve Issue Error:", error);
+    res.status(500).json({ message: "Failed to unresolve issue" });
+  }
+};
