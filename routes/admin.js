@@ -3,7 +3,7 @@ const { protect , authorize } = require("../middelware/authMiddelware");
 const router = express.Router();
 const {
 
-  getTechnicianWorkForAdmin,getAllTechniciansForAdmin,getAllClientForAdmin,getclientWorkForAdmin,getAllWorkAdmin,resolveWorkIssue,getOpenIssues,getAllIssues,getPartsPendingRequests,updatePartStatus,getAllPartsRequests,getNeedPartsByWorkId
+  getTechnicianWorkForAdmin,getAllTechniciansForAdmin,getAllClientForAdmin,getclientWorkForAdmin,getAllWorkAdmin,resolveWorkIssue,getOpenIssues,getAllIssues,getPartsPendingRequests,updatePartStatus,getAllPartsRequests,getNeedPartsByWorkId,getIssueChartCounts,unresolveWorkIssue
 } = require("../controllers/admincontrooler");
 // const { getAllTechnicianWorks } = require("../controllers/techniciancontroller");
 
@@ -25,5 +25,5 @@ router.put('/approverejectbyadmin',protect,authorize('admin'),updatePartStatus) 
 router.get('/getneedpart',protect,authorize('admin'),getAllPartsRequests)
 router.get('/getneedbyid/:workId',protect,authorize('admin'),getNeedPartsByWorkId)
 router.get('/getpi',protect,authorize('admin'),getIssueChartCounts)
-router.post('/unresolve-issue',protect,authorize('admin'),unresolveWorkIssue)
+router.post('/unresolve-issue',protect,authorize('admin'),unresolveWorkIssue) // hit the unresolved issue
 module.exports = router;
