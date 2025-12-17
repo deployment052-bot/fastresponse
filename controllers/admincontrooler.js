@@ -813,3 +813,134 @@ exports.unresolveWorkIssue = async (req, res) => {
     res.status(500).json({ message: "Failed to unresolve issue" });
   }
 };
+exports.getOrdersClientsGraph = async (req, res) => {
+  try {
+    const type = req.query.type || "day";
+    const baseDate = req.query.date ? new Date(req.query.date) : new Date();
+
+    let startDate, endDate, groupId, labelFn;
+    let graphData = [];
+
+  
+    if (type === "day") {
+      startDate = new Date(baseDate);
+      startDate.setHours(0, 0, 0, 0);
+
+      endDate = new Date(baseDate);
+      endDate.setHours(23, 59, 59, 999);
+
+      groupId = { hour: { $hour: "$createdAt" } };
+      labelFn = (d) => `${d.hour}:00`;
+
+      
+      for (let h = 0; h < 24; h++) {
+        graphData.push({ label: `${h}:00`, orders: 0, clients: 0 });
+      }
+    }
+
+
+    else if (type === "week") {
+      const d = new Date(baseDate);
+      const day = d.getDay(); 
+const monday = new Date(d);
+      monday.setDate(d.getDate() - day + (day === 0 ? -6 : 1));
+      monday.setHours(0, 0, 0, 0);
+      startDate = monday;
+const endOfWeek = new Date(d);
+      endOfWeek.setHours(23, 59, 59, 999);
+      endDate = day === 0 ? new Date(monday.getTime() + 6 * 24 * 60 * 60 * 1000) : endOfWeek;
+
+      groupId = { day: { $dayOfMonth: "$createdAt" } };
+      labelFn = (d) => `Day ${d.day}`;
+const temp = new Date(startDate);
+      while (temp <= endDate) {
+        graphData.push({
+          day: temp.getDate(),
+          label: `Day ${temp.getDate()}`,
+          orders: 0,
+          clients: 0
+        });
+        temp.setDate(temp.getDate() + 1);
+      }
+    }
+else if (type === "month") {
+      startDate = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
+      startDate.setHours(0, 0, 0, 0);
+
+      endDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 0);
+      endDate.setHours(23, 59, 59, 999);
+
+      groupId = { day: { $dayOfMonth: "$createdAt" } };
+      labelFn = (d) => `Day ${d.day}`;
+
+      const temp = new Date(startDate);
+      while (temp <= endDate) {
+        graphData.push({
+          day: temp.getDate(),
+          label: `Day ${temp.getDate()}`,
+          orders: 0,
+          clients: 0
+        });
+        temp.setDate(temp.getDate() + 1);
+      }
+    }
+const ordersAgg = await Work.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate, $lte: endDate }
+        }
+      },
+      {
+        $group: {
+          _id: groupId,
+          orders: { $sum: 1 }
+        }
+      }
+    ]);
+const clientsAgg = await User.aggregate([
+      {
+        $match: {
+          role: "client",
+          createdAt: { $gte: startDate, $lte: endDate }
+        }
+      },
+      {
+        $group: {
+          _id: groupId,
+          clients: { $sum: 1 }
+        }
+      }
+    ]);
+    graphData = graphData.map((item) => {
+  
+      const order = ordersAgg.find(o => {
+        if (type === "day") return o._id.hour === parseInt(item.label);
+        return o._id.day === item.day;
+      });
+      if (order) item.orders = order.orders;
+
+      // Merge clients
+      const client = clientsAgg.find(c => {
+        if (type === "day") return c._id.hour === parseInt(item.label);
+        return c._id.day === item.day;
+      });
+      if (client) item.clients = client.clients;
+
+      return item;
+    });
+
+    res.status(200).json({
+      success: true,
+      type,
+      date: baseDate,
+      graphData
+    });
+
+  } catch (error) {
+    console.error("Graph Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to load graph data"
+    });
+  }
+};
