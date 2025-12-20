@@ -45,43 +45,159 @@ function parseClientDate(input) {
 async function getAddressFromCoordinates(lat, lng) {
   try {
     const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`;
-    const response = await axios.get(url, { headers: { "User-Agent": "MyApp/1.0" } });
+    const response = await axios.get(url, {
+      timeout: 3000, // 🔥 IMPORTANT
+      headers: { "User-Agent": "MyApp/1.0" },
+    });
     return response.data.display_name || null;
   } catch (err) {
-    console.error("Reverse Geocoding Error:", err);
-    return null;
+    return null; // silent fail
   }
 }
 
-// Create Work
 exports.createWork = async (req, res) => {
   try {
-    const { serviceType, specialization, description, serviceCharge, technicianId, lat, lng, date } = req.body;
+    const {
+      serviceType,
+      specialization,
+      description,
+      serviceCharge,
+      technicianId,
+      lat,
+      lng,
+      date
+    } = req.body;
+
     const clientId = req.user._id;
 
-    if (!serviceType || !specialization) 
+    if (!serviceType || !specialization) {
       return res.status(400).json({ message: "Missing required fields" });
+    }
 
+    if (lat == null || lng == null) {
+      return res.status(400).json({ message: "Coordinates are required" });
+    }
+
+    const client = await User.findById(clientId);
+    if (!client) {
+      return res.status(404).json({ message: "Client not found" });
+    }
+
+    
     const specs = Array.isArray(specialization)
       ? specialization.map(s => s.trim().toLowerCase())
       : specialization.split(",").map(s => s.trim().toLowerCase());
 
-    const client = await User.findById(clientId);
-    if (!client) return res.status(404).json({ message: "Client not found" });
+   
+    const parsedDate = date ? parseClientDate(date) : null;
+    if (date && !parsedDate) {
+      return res.status(400).json({ message: "Invalid date format" });
+    }
 
-    if (!lat || !lng)
-      return res.status(400).json({ message: "Coordinates are required" });
+    if (parsedDate) {
+      parsedDate.objectDate.setHours(0, 0, 0, 0);
+    }
 
+   
     const locationName = await getAddressFromCoordinates(lat, lng);
     const finalLocation = locationName ? locationName.toLowerCase() : "unknown";
 
-    const parsedDate = date ? parseClientDate(date) : null;
+   
+    const technicians = await User.find({
+      role: "technician",
+      specialization: { $in: specs }
+    });
+
+    if (technicians.length === 0) {
+      return res.status(404).json({
+        message: "No technician available for the selected specialization"
+      });
+    }
+
+
+    let bookedTechIds = [];
+
+    if (parsedDate) {
+      const dayStart = new Date(parsedDate.objectDate);
+      dayStart.setHours(0, 0, 0, 0);
+
+      const dayEnd = new Date(parsedDate.objectDate);
+      dayEnd.setHours(23, 59, 59, 999);
+
+
+      const bookedWorks = await Work.find({
+        date: { $gte: dayStart, $lte: dayEnd },
+        assignedTechnician: { $ne: null },
+        status: { $in: ["open", "approved", "on_the_way", "inprogress"] }
+      }).select("assignedTechnician");
+
+   
+      const bookedBookings = await Booking.find({
+        date: { $gte: dayStart, $lte: dayEnd },
+        status: { $in: ["Requested", "approved", "on_the_way", "inprogress"] }
+      }).select("technician");
+
+      bookedTechIds = [
+        ...bookedWorks.map(w => w.assignedTechnician.toString()),
+        ...bookedBookings.map(b => b.technician.toString())
+      ];
+    }
+
+
+    const R = 6371;
+    const matchingTechnicians = [];
+
+    for (const tech of technicians) {
+      if (!tech.coordinates?.lat || !tech.coordinates?.lng) continue;
+
+
+      if (bookedTechIds.includes(tech._id.toString())) continue;
+
+      const dLat = ((tech.coordinates.lat - lat) * Math.PI) / 180;
+      const dLng = ((tech.coordinates.lng - lng) * Math.PI) / 180;
+
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((lat * Math.PI) / 180) *
+          Math.cos((tech.coordinates.lat * Math.PI) / 180) *
+          Math.sin(dLng / 2) ** 2;
+
+      const distance = R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+
+      if (distance <= 70) {
+        matchingTechnicians.push({
+          ...tech.toObject(),
+          distanceInKm: distance.toFixed(2),
+          bookedBookings:"approved",
+          employeeStatus: "available"
+        });
+      }
+    }
+
+    if (matchingTechnicians.length === 0) {
+      return res.status(404).json({
+        message: "No technician available for this location"
+      });
+    }
+
 
     let assignedTech = null;
+
     if (technicianId && mongoose.Types.ObjectId.isValid(technicianId)) {
+      const selectedTech = matchingTechnicians.find(
+        t => t._id.toString() === technicianId
+      );
+
+      if (!selectedTech) {
+        return res.status(400).json({
+          message: "Selected technician is already booked for this date"
+        });
+      }
+
       assignedTech = technicianId;
     }
 
+    
     const work = await Work.create({
       client: clientId,
       serviceType,
@@ -91,53 +207,16 @@ exports.createWork = async (req, res) => {
       location: finalLocation,
       coordinates: { lat, lng },
       assignedTechnician: assignedTech,
-      status: assignedTech ? "taken" : "open",
+      status: "open",
       token: `REQ-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`,
       date: parsedDate ? parsedDate.objectDate : null,
-      formattedDate: parsedDate ? parsedDate.formatted : null,
-      time: "",
-      formattedTime: "",
+      formattedDate: parsedDate ? parsedDate.formatted : null
     });
-
-    // Find nearby technicians manually (Haversine)
-    const R = 6371;
-    const technicians = await User.find({
-      role: "technician",
-      specialization: { $in: specs.map(s => new RegExp(s, "i")) },
-    });
-
-    const techniciansWithStatus = [];
-    for (const tech of technicians) {
-      if (!tech._id || !tech.coordinates?.lat || !tech.coordinates?.lng) continue;
-
-      const dLat = ((tech.coordinates.lat - lat) * Math.PI) / 180;
-      const dLng = ((tech.coordinates.lng - lng) * Math.PI) / 180;
-      const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos((lat * Math.PI) / 180) *
-        Math.cos((tech.coordinates.lat * Math.PI) / 180) *
-        Math.sin(dLng / 2) ** 2;
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      const distance = R * c;
-
-      if (distance <= 70) {
-        const inWork = await Work.findOne({
-          assignedTechnician: tech._id,
-          status: { $in: ["approved","dispatch", "inprogress"] },
-        });
-
-        techniciansWithStatus.push({
-          ...tech.toObject(),
-          distanceInKm: distance.toFixed(2),
-          employeeStatus: inWork ? "in work" : "available",
-        });
-      }
-    }
 
     res.status(201).json({
       message: "Work request submitted successfully",
       work,
-      matchingTechnicians: techniciansWithStatus,
+      matchingTechnicians
     });
 
   } catch (err) {
@@ -145,109 +224,6 @@ exports.createWork = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
-
-
-
-
-
-exports.findMatchingTechnicians = async (req, res) => {
-  try {
-    const clientId = req.user._id;
-    let { specialization, location, date, description, serviceType, time } = req.body;
-
-    if (!specialization || !location || !date) {
-      return res.status(400).json({ message: "Specialization, location, and date required" });
-    }
-
-    if (typeof specialization === "string") {
-      specialization = [specialization];
-    }
-
-    const workDate = new Date(date);
-    if (isNaN(workDate.getTime())) {
-      return res.status(400).json({ message: "Invalid date format" });
-    }
-
-    let specs = [];
-    if (typeof specialization === "string") {
-      specs = specialization
-        .split(",")
-        .map(s => s.trim().toLowerCase())
-        .filter(Boolean);
-    } else if (Array.isArray(specialization)) {
-      specs = specialization.map(s => s.trim().toLowerCase());
-    }
-
-    const normalizedLocation = location.trim().toLowerCase();
-
-  
-    const work = await Work.create({
-      client: clientId,
-      serviceType,
-      specialization: specs,
-      description,
-      location: normalizedLocation,
-      date: workDate,
-      time,
-      status: "open",
-      token: `REQ-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`
-    });
-      
-    const technicians = await User.find({
-      role: "technician",
-      specialization: { $in: specs.map(s => new RegExp(s, "i")) },
-      location: { $regex: new RegExp(normalizedLocation, "i") }
-    }).select("name phone email experience specialization location ratings");
-
-    const techniciansWithStatus = [];
-    for (const tech of technicians) {
-      const inWork = await Work.findOne({
-        assignedTechnician: tech._id,
-        status: { $in: ["taken", "approved"] }
-      });
-
-      techniciansWithStatus.push({
-        ...tech.toObject(),
-        employeeStatus: inWork ? "in work" : "available"
-      });
-
-     
-    //   await sendNotification(
-    //     tech._id,
-    //     "technician",
-    //     "New Work Request",
-    //     `New job available: ${serviceType} in ${location}`,
-    //     "info",
-    //     `/technician/jobs`
-    //   );
-     }
-
-   
-    // await sendNotification(
-    //   clientId,
-    //   "client",
-    //   "Work Request Submitted",
-    //   `Your request for ${serviceType} has been submitted successfully.`,
-    //   "success",
-    //   `/client/work/${work._id}`
-    // );
-
-    res.status(201).json({
-      message: "Work request submitted and sent to all matching technicians",
-      work,
-      matchingTechnicians: techniciansWithStatus.length
-        ? techniciansWithStatus
-        : "No matching technicians found"
-    });
-
-  } catch (err) {
-    console.error("Technician Search Error:", err);
-    res.status(500).json({ message: "Server error" });
-  }
-};
-
-
-
 
 
 
@@ -263,132 +239,152 @@ exports.bookTechnician = async (req, res) => {
       time,
       serviceType,
       serviceCharge,
-      description
+      description,
     } = req.body;
 
-        const userId = req.user._id;
-     const getwork=await Work.findById(workId).select("token")
+    const userId = req.user._id;
 
-    if (!workId || !mongoose.Types.ObjectId.isValid(workId))
+    // ---------------- VALIDATIONS ----------------
+    if (!mongoose.Types.ObjectId.isValid(workId))
       return res.status(400).json({ message: "Invalid Work ID" });
 
-    if (!technicianId || !mongoose.Types.ObjectId.isValid(technicianId))
+    if (!mongoose.Types.ObjectId.isValid(technicianId))
       return res.status(400).json({ message: "Invalid Technician ID" });
 
-    if (!lat || !lng)
+    if (lat == null || lng == null)
       return res.status(400).json({ message: "Coordinates required" });
 
-    if (!date)
-      return res.status(400).json({ message: "Date required" });
+    if (!date || !time)
+      return res.status(400).json({ message: "Date and time are required" });
 
     const parsedDate = parseClientDate(date);
     if (!parsedDate)
       return res.status(400).json({ message: "Invalid date format (DD-MM-YYYY)" });
 
-    const client = await User.findById(userId);
+    // 🔒 Normalize date (DAY LEVEL)
+    parsedDate.objectDate.setHours(0, 0, 0, 0);
+
+    // ================== 🔥 DATE + TIME CONFLICT CHECK 🔥 ==================
+    const timeConflict = await Booking.findOne({
+      technician: technicianId,
+      date: parsedDate.objectDate,
+      formattedTime: time,
+      status: { $in: ["Requested", "approved", "on_the_way", "inprogress"] }
+    });
+
+    if (timeConflict) {
+      return res.status(400).json({
+        message: `Technician already booked on ${parsedDate.formatted} at ${time}`
+      });
+    }
+
+    // ---------------- LOCK WORK (ANTI RACE CONDITION) ----------------
+    const lockedWork = await Work.findOneAndUpdate(
+      {
+        _id: workId,
+        assignedTechnician: { $in: [null, undefined] }
+      },
+      {
+        assignedTechnician: technicianId,
+        status: "approved"
+      },
+      { new: true }
+    );
+
+    if (!lockedWork) {
+      return res.status(400).json({
+        message: "This work has already been booked by another user"
+      });
+    }
+
+    // ---------------- FETCH CLIENT & TECHNICIAN ----------------
+    const [client, technician] = await Promise.all([
+      User.findById(userId).select("firstName address"),
+      User.findById(technicianId).select("firstName")
+    ]);
+
     if (!client)
       return res.status(404).json({ message: "Client not found" });
 
-    const technician = await User.findById(technicianId);
     if (!technician)
       return res.status(404).json({ message: "Technician not found" });
 
-    const locationName = await getAddressFromCoordinates(lat, lng);
-    const finalLocation = locationName ? locationName.toLowerCase() : "unknown";
-
-
-   
+    // ---------------- PREVENT DUPLICATE ACTIVE BOOKING ----------------
     const existingBooking = await Booking.findOne({
       user: userId,
       technician: technicianId,
-      status: { $in: ["approved", "dispatch", "inprogress"] } 
+      serviceType,
+      status: { $in: ["Requested", "approved", "on_the_way", "inprogress"] }
     });
 
     if (existingBooking) {
       return res.status(400).json({
-        message: `You have already booked ${technician.firstName}. Please wait until the previous work is completed.`,
-        bookingId: existingBooking._id,
-        status: existingBooking.status
+        message: `You already have an active booking with ${technician.firstName}`,
+        bookingId: existingBooking._id
       });
     }
 
-
-    
-    const techBusy = await Work.findOne({
-      assignedTechnician: technicianId,
-      status: { $in: ["dispatch", "inprogress"] }
-    });
-
-    if (techBusy) {
-      return res.status(400).json({
-        message: `Technician ${technician.firstName} is currently busy (Status: ${techBusy.status}).`
-      });
-    }
-
-
- 
+    // ---------------- CREATE BOOKING ----------------
     const booking = await Booking.create({
       user: userId,
       technician: technicianId,
       serviceType,
-      serviceCharge,
+      serviceCharge: Number(serviceCharge || 0),
       description,
-      location: finalLocation,
+      location: "pending",
       coordinates: { lat, lng },
       address: client.address || "Not available",
       date: parsedDate.objectDate,
       formattedDate: parsedDate.formatted,
-      formattedTime: time || "",
-      status: "open"
+      formattedTime: time,
+      status: "Requested"
     });
 
+    // ---------------- RESPONSE ----------------
+    res.status(201).json({
+      message: "Technician booked successfully",
+      booking,
+      work: lockedWork
+    });
 
-    
-    const updatedWork = await Work.findByIdAndUpdate(
-      workId,
-      {
-        assignedTechnician: technicianId,
-        status: "taken",
-        location: finalLocation,
-        coordinates: { lat, lng },
-        date: parsedDate.objectDate,
-        time,
-        description,
-        serviceType,
-        serviceCharge
-      },
-      { new: true }
-    );
-await sendNotification(
+    // ---------------- BACKGROUND LOCATION UPDATE ----------------
+    getAddressFromCoordinates(lat, lng).then(address => {
+      if (address) {
+        Booking.updateOne(
+          { _id: booking._id },
+          { location: address.toLowerCase() }
+        ).exec();
+
+        Work.updateOne(
+          { _id: workId },
+          { location: address.toLowerCase() }
+        ).exec();
+      }
+    });
+
+    // ---------------- NOTIFICATIONS ----------------
+    sendNotification(
       technicianId,
       "technician",
       "New Work Assigned",
-      `You have received a new work request from ${client.firstName}.The service type is ${serviceType}`,
+      `You have received a new work request from ${client.firstName}`,
       "new_work",
-      
-      `work-${getwork.token}`
+      `work-${lockedWork.token}`
     );
 
-   await sendNotification(
-  userId,
-  "client",
-  "Requested",
-  `Your technician ${technician.firstName} has been booked successfully.the service type is ${serviceType}`,
-  "Requested",
-  `work-${getwork.token}`
-);
-
-    res.status(201).json({
-      message: "Technician booked successfully.",
-      booking,
-      work: updatedWork,
-    });
+    sendNotification(
+      userId,
+      "client",
+      "Requested",
+      `Your technician ${technician.firstName} has been booked successfully`,
+      "Requested",
+      `work-${lockedWork.token}`
+    );
 
   } catch (err) {
     console.error("Book Technician Error:", err);
-    res.status(500).json({
-      message: "Server error while booking technician",
-      error: err.message
+    return res.status(500).json({
+      message: "Server error while booking technician"
     });
   }
 };
