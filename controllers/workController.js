@@ -244,7 +244,7 @@ exports.bookTechnician = async (req, res) => {
 
     const userId = req.user._id;
 
-    // ---------------- VALIDATIONS ----------------
+    
     if (!mongoose.Types.ObjectId.isValid(workId))
       return res.status(400).json({ message: "Invalid Work ID" });
 
@@ -261,10 +261,10 @@ exports.bookTechnician = async (req, res) => {
     if (!parsedDate)
       return res.status(400).json({ message: "Invalid date format (DD-MM-YYYY)" });
 
-    // 🔒 Normalize date (DAY LEVEL)
+ 
     parsedDate.objectDate.setHours(0, 0, 0, 0);
 
-    // ================== 🔥 DATE + TIME CONFLICT CHECK 🔥 ==================
+ 
     const timeConflict = await Booking.findOne({
       technician: technicianId,
       date: parsedDate.objectDate,
@@ -278,7 +278,6 @@ exports.bookTechnician = async (req, res) => {
       });
     }
 
-    // ---------------- LOCK WORK (ANTI RACE CONDITION) ----------------
     const lockedWork = await Work.findOneAndUpdate(
       {
         _id: workId,
@@ -293,11 +292,10 @@ exports.bookTechnician = async (req, res) => {
 
     if (!lockedWork) {
       return res.status(400).json({
-        message: "This work has already been booked by another user"
+        message: "This work has already been booked"
       });
     }
 
-    // ---------------- FETCH CLIENT & TECHNICIAN ----------------
     const [client, technician] = await Promise.all([
       User.findById(userId).select("firstName address"),
       User.findById(technicianId).select("firstName")
@@ -309,7 +307,6 @@ exports.bookTechnician = async (req, res) => {
     if (!technician)
       return res.status(404).json({ message: "Technician not found" });
 
-    // ---------------- PREVENT DUPLICATE ACTIVE BOOKING ----------------
     const existingBooking = await Booking.findOne({
       user: userId,
       technician: technicianId,
@@ -324,30 +321,28 @@ exports.bookTechnician = async (req, res) => {
       });
     }
 
-    // ---------------- CREATE BOOKING ----------------
     const booking = await Booking.create({
       user: userId,
       technician: technicianId,
       serviceType,
       serviceCharge: Number(serviceCharge || 0),
       description,
-      location: "pending",
+      location: "",
       coordinates: { lat, lng },
       address: client.address || "Not available",
       date: parsedDate.objectDate,
       formattedDate: parsedDate.formatted,
       formattedTime: time,
-      status: "Requested"
+      status: "open"
     });
 
-    // ---------------- RESPONSE ----------------
     res.status(201).json({
       message: "Technician booked successfully",
       booking,
       work: lockedWork
     });
 
-    // ---------------- BACKGROUND LOCATION UPDATE ----------------
+ 
     getAddressFromCoordinates(lat, lng).then(address => {
       if (address) {
         Booking.updateOne(
@@ -362,7 +357,6 @@ exports.bookTechnician = async (req, res) => {
       }
     });
 
-    // ---------------- NOTIFICATIONS ----------------
     sendNotification(
       technicianId,
       "technician",
@@ -388,8 +382,6 @@ exports.bookTechnician = async (req, res) => {
     });
   }
 };
-
-
 
 
 
