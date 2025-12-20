@@ -23,7 +23,7 @@ const { getAllWorks  } = require('../controllers/statuscontrollers');
 router.post('/work/create', protect, createWork);
 
 
-router.post('/work/find-technicians', protect, findMatchingTechnicians);
+// router.post('/work/find-technicians', protect, findMatchingTechnicians);
 
 router.post('/work/book-technician', protect, bookTechnician);
 
