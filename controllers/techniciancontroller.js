@@ -476,7 +476,7 @@ exports.confirmPayment = async (req, res) => {
    
     work.payment = {
       method: paymentMethod,
-      status: "payment_done",
+      status: "confirm",
       confirmedBy: technicianId,
       confirmedAt: new Date(),
       paidAt: work.payment?.paidAt || new Date(), 
