@@ -482,7 +482,7 @@ exports.confirmPayment = async (req, res) => {
     };
 
    
-    work.status = "payment_done";
+    work.status = "confirm";
     await work.save();
  const receiptFilePath = path.join(
       invoicesFolder,
