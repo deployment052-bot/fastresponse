@@ -75,6 +75,7 @@ app.use('/technicaian', require('./routes/technicianRoutes'));
 app.use('/ims',require('./routes/ssologin'))
 app.use('/profile',require('./routes/profileRoutes'))
 app.use('/notification', require('./routes/notificationroute'));
+app.use('/phone',require('./native_code/route/authregister'));
 mongoose.connect(process.env.MONGO_URL)
   .then(() => console.log(' MongoDB connected'))
   .catch(err => console.log('❌ MongoDB connection error:', err));
