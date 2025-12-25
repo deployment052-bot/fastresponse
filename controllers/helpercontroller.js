@@ -3,9 +3,22 @@ const User = require("../model/user");
 const dayjs = require("dayjs");
 const relativeTime = require("dayjs/plugin/relativeTime");
 dayjs.extend(relativeTime);
+const admin = require("firebase-admin");
+const { io, userSockets } = require("../server"); 
 
-exports.sendNotification = async (userId, role, title, message, type = "info", link = "") => {
+
+
+
+exports.sendNotification = async (
+  userId,
+  role,
+  title,
+  message,
+  type = "info",
+  link = ""
+) => {
   try {
+    
     const notification = new Notification({
       user: userId,
       role,
@@ -14,11 +27,49 @@ exports.sendNotification = async (userId, role, title, message, type = "info", l
       type,
       link,
     });
-
     await notification.save();
 
    
-    await User.findByIdAndUpdate(userId, { $inc: { notificationCount: 1 } });
+    await User.findByIdAndUpdate(userId, {
+      $inc: { notificationCount: 1 },
+    });
+
+  
+    const user = await User.findById(userId).select("fcmToken");
+
+    if (user?.fcmToken) {
+      try {
+        await admin.messaging().send({
+          token: user.fcmToken,
+          notification: {
+            title,
+            body: message,
+            // msg,
+          },
+          data: {
+            type,
+            link,
+          },
+        });
+      } catch (err) {
+        console.error("FCM Error:", err.message);
+
+        
+        if (
+          err.code === "messaging/registration-token-not-registered" ||
+          err.code === "messaging/invalid-registration-token"
+        ) {
+          await User.findByIdAndUpdate(userId, {
+            $unset: { fcmToken: "" },
+          });
+        }
+      }
+    }
+
+    const sockets = userSockets[userId] || [];
+    sockets.forEach((socketId) => {
+      io.to(socketId).emit("new-notification", notification);
+    });
 
     return notification;
   } catch (err) {
@@ -26,6 +77,68 @@ exports.sendNotification = async (userId, role, title, message, type = "info", l
     throw err;
   }
 };
+
+// exports.sendNotification = async (
+//   userId,
+//   role,
+//   title,
+//   message,
+//   type = "info",
+//   link = ""
+// ) => {
+//   try {
+  
+//     const notification = new Notification({
+//       user: userId,
+//       role,
+//       title,
+//       message,
+//       type,
+//       link,
+//     });
+//     await notification.save();
+
+
+//     const user = await User.findById(userId).select("fcmToken");
+
+  
+//     if (user?.fcmToken) {
+//       try {
+//         await admin.messaging().send({
+//           token: user.fcmToken,
+//           notification: {
+//             title,
+//             body: message,
+//           },
+//           data: {
+//             type,
+//             link,
+//           },
+//         });
+//       } catch (err) {
+//         console.error("FCM Error:", err);
+//         if (err.code === "messaging/registration-token-not-registered") {
+//           await User.findByIdAndUpdate(userId, { $unset: { fcmToken: "" } });
+//         }
+//       }
+//     }
+
+ 
+//     await User.findByIdAndUpdate(userId, {
+//       $inc: { notificationCount: 1 },
+//     });
+
+ 
+//     const sockets = userSockets[userId] || [];
+//     sockets.forEach((socketId) => {
+//       io.to(socketId).emit("new-notification", notification);
+//     });
+
+//     return notification;
+//   } catch (err) {
+//     console.error("Notification Error:", err);
+//   }
+// };
 
 
 exports.markNotificationsAsRead = async (req, res) => {
