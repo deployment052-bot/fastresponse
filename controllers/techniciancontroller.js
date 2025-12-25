@@ -450,7 +450,7 @@ exports.confirmPayment = async (req, res) => {
   try {
     const { workId, paymentMethod } = req.body; 
     const technicianId = req.user._id;
- const userId=await Work.findById(workId).select("client token serviceType");
+    const userId=await Work.findById(workId).select("client token serviceType");
     const work = await Work.findById(workId)
       .populate("client", "firstName email phone")
       .populate("assignedTechnician", "firstName token email role phone");
@@ -475,14 +475,14 @@ exports.confirmPayment = async (req, res) => {
    
     work.payment = {
       method: paymentMethod,
-      status: "confirmed",
+      status: "payment_done",
       confirmedBy: technicianId,
       confirmedAt: new Date(),
       paidAt: work.payment?.paidAt || new Date(), 
     };
 
    
-    work.status = "confirm";
+    work.status = "payment_done";
     await work.save();
  const receiptFilePath = path.join(
       invoicesFolder,
@@ -529,6 +529,22 @@ exports.confirmPayment = async (req, res) => {
   "payment_received",
   `work-${userId.token}`
 )
+const clientUser = await User.findById(userId.client).select("fcmToken");
+if (clientUser?.fcmToken) {
+  await admin.messaging().send({
+    token: clientUser.fcmToken,
+    notification: {
+      title: "payment_Done",
+      body: `Your Payment done. Thanks for choosing us`,
+ 
+    },
+    data: {
+      type: "payment_Done",
+      link: `work-${userId.token}`,
+    },
+  });
+}
+
     res.status(200).json({
       success: true,
       message: "Payment confirmed successfully by technician.",
@@ -539,6 +555,7 @@ exports.confirmPayment = async (req, res) => {
     res.status(500).json({ message: "Server error while confirming payment." });
   }
 };
+
 
 
 
