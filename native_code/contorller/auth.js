@@ -40,9 +40,11 @@ exports.registerbyPhoneOTP = async (req, res) => {
     let user = await User.findOne({ phone });
 
   
-    if (user && user.isPhoneVerified) {
-      return res.status(400).json({ success:false, message: "Phone already verified" });
-    }
+    // if (user && user.isPhoneVerified) {
+
+    //   return res.status(400).json({ success:false, message: "Phone already verified" });
+
+    // }
 
     
     if (!user) {
@@ -59,15 +61,18 @@ exports.registerbyPhoneOTP = async (req, res) => {
 
     await user.save();
 
+if(process.env.NODE_ENV !=='development'){
     await client.messages.create({
       body: `Your Fast Respoanse OTP is ${otp}. Valid for 5 minutes.`,
       from: process.env.TWILIO_PHONE_NUMBER,
       to: phone
     });
-
+}
+        
     res.status(200).json({
       success: true,
-      message: "OTP sent successfully"
+      message: "OTP sent successfully",
+      otp
     });
 
   } catch (err) {
@@ -113,12 +118,17 @@ exports.verifyPhoneOTP = async (req, res) => {
 
     const token = generateToken(user);
 
-    res.status(200).json({
-      success: true,
-      message: "Phone verified successfully",
-      token,
-      isProfileCompleted: user.isProfileCompleted
-    });
+  const resposeData={
+          success:true,
+          token,
+          message: "OTP sent successfully to your phone.",    
+          isProfileCompleted: user.isProfileCompleted,
+        }
+        
+        if(user.isProfileCompleted===true){
+          resposeData.user=user
+        }
+    res.status(200).json(resposeData);
 
   } catch (err) {
     console.error("Verify OTP Error:", err);
@@ -280,68 +290,5 @@ exports.resendPhoneOTP = async (req, res) => {
   }
 };
 
-exports.loginSendOTP = async (req, res) => {
-  try {
-    let { phone } = req.body;
-    if (!phone) return res.status(400).json({ success:false, message: "Phone required" });
 
-    phone = normalizePhone(phone);
 
-    const user = await User.findOne({ phone });
-    if (!user) return res.status(404).json({ success:false, message: "User not found. Please register first" });
-
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    user.phoneOTP = await bcrypt.hash(otp, 10);
-      user.phoneOTPExpires = Date.now() + 5 * 60 * 1000;
-    await user.save();
-console.log("OTP:", otp);
-      if(process.env.NODE_ENV !=='development'){
-    await client.messages.create({
-      body: `Your login OTP is ${otp}. Valid for 5 minutes.`,
-
-      from: process.env.TWILIO_PHONE_NUMBER,
-      to: phone
-    });
-  }
-    res.status(200).json({ success: true,otp, message: "Login OTP sent" });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success:false, message: "Failed to send OTP" });
-  }
-};
-
-exports.loginVerifyOTP = async (req, res) => {
-  try {
-    let { phone, otp } = req.body;
-    phone = normalizePhone(phone);
-
-    const user = await User.findOne({ phone });
-    if (!user || !user.phoneOTP || !user.phoneOTPExpires) {
-      return res.status(400).json({ success:false, message: "OTP not requested" });
-    }
-
-    if (Date.now() > user.phoneOTPExpires) {
-      return res.status(400).json({ success:false, message: "OTP expired" });
-    }
-
-    const isMatch = await bcrypt.compare(otp, user.phoneOTP);
-    if (!isMatch) return res.status(400).json({  success:false, message: "Invalid OTP" });
-
-    // Clear OTP
-    user.phoneOTP = undefined;
-    user.phoneOTPExpires = undefined;
-    await user.save();
-
-    const token = generateToken(user);
-    res.status(200).json({
-      success: true,
-      message: "Login successful",
-      token,
-      user
-    
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success:false, message: "Login failed" });
-  }
-};
