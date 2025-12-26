@@ -39,12 +39,12 @@ exports.registerbyPhoneOTP = async (req, res) => {
 
     let user = await User.findOne({ phone });
 
-    // already verified → block
+  
     if (user && user.isPhoneVerified) {
       return res.status(400).json({ success:false, message: "Phone already verified" });
     }
 
-    // create TEMP user if not exists
+    
     if (!user) {
       user = new User({
         phone,
@@ -280,10 +280,6 @@ exports.resendPhoneOTP = async (req, res) => {
   }
 };
 
-
-
-
-
 exports.loginSendOTP = async (req, res) => {
   try {
     let { phone } = req.body;
@@ -299,14 +295,14 @@ exports.loginSendOTP = async (req, res) => {
       user.phoneOTPExpires = Date.now() + 5 * 60 * 1000;
     await user.save();
 console.log("OTP:", otp);
-
+      if(process.env.NODE_ENV !=='development'){
     await client.messages.create({
       body: `Your login OTP is ${otp}. Valid for 5 minutes.`,
 
       from: process.env.TWILIO_PHONE_NUMBER,
       to: phone
     });
-
+  }
     res.status(200).json({ success: true,otp, message: "Login OTP sent" });
   } catch (err) {
     console.error(err);
