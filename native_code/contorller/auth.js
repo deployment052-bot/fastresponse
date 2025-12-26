@@ -121,12 +121,12 @@ exports.verifyPhoneOTP = async (req, res) => {
   const resposeData={
           success:true,
           token,
-          message: "OTP sent successfully to your phone.",    
-          isProfileCompleted: user.isProfileCompleted,
+         message: "OTP verified successfully.",
+      isProfileCompleted: !!user.isProfileCompleted,
         }
         
         if(user.isProfileCompleted===true){
-          resposeData.user=user
+          resposeData.user=user;
         }
     res.status(200).json(resposeData);
 
@@ -289,6 +289,7 @@ exports.resendPhoneOTP = async (req, res) => {
       message: "Failed to resend OTP" });
   }
 };
+
 
 
 
