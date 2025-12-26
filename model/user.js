@@ -14,7 +14,8 @@ const userSchema = new mongoose.Schema({
     enum: ["client", "technician", "admin"],
     default: "client",
   },
-  isActive: { type: Boolean, default: true },
+  fcmToken: { type: String },
+  isActive: { type: Boolean, default: true },// tech
   createdAt: { type: Date, default: Date.now },
 
   //admin degignation like hr admin , store admin
@@ -63,8 +64,18 @@ designation:{
   isEmailVerified: { type: Boolean, default: false },
   emailOTP: String,
   emailOTPExpires: Date,
+
+  isPhoneVerified: { type: Boolean, default: false },
   phoneOTP: String,
   phoneOTPExpires: Date,
+
+  isProfileCompleted: { type: Boolean, default: false },
+otpResendCount: {
+  type: Number,
+  default: 0
+},
+otpLastSentAt: Date
+
 });
 
 module.exports = mongoose.model("User", userSchema);
