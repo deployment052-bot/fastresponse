@@ -1,4 +1,4 @@
-const Service = require("../model/serviceCard");
+const Service = require("../model/servicecard");
 const SERVICE_CONFIG = require("../config/serviceConfig");
 
 exports.getServices = async (req, res) => {
