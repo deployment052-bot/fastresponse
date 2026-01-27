@@ -27,7 +27,7 @@ const io = new Server(server, {
 
 
 module.exports.io = io;
-
+global.io = io;
 io.on("connection", (socket) => {
   console.log(" Socket connected:", socket.id);
 
