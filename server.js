@@ -16,15 +16,11 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: [
-      "http://localhost:5173",
-      "https://honeydew-ibex-486236.hostingersite.com",
-      "https://fantastic-pie-84a677.netlify.app"
-    ],
+    origin: "*",
     credentials: true,
   }
 });
-
+global.io = io;
 
 module.exports.io = io;
 global.io = io;
